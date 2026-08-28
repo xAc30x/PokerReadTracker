@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1787366882423,
+      "tag": "0000_bright_blue_blade",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787367181136,
+      "tag": "0001_safe_ben_parker",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787378380572,
+      "tag": "0002_pink_veda",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787378406692,
+      "tag": "0003_fancy_meteorite",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1787715677476,
+      "tag": "0004_futuristic_cargill",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1787716418191,
+      "tag": "0005_absent_makkari",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+ALTER TABLE `table_state` ADD `table_size` integer DEFAULT 6 NOT NULL;

@@ -1,0 +1,1 @@
+ALTER TABLE `table_state` ADD `last_advance_id` text DEFAULT '' NOT NULL;
