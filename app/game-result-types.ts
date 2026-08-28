@@ -1,5 +1,13 @@
 export type GameCategory = "cash" | "tournament";
 
+export type PokerFormat =
+  | "NL Hold'em"
+  | "PL Omaha"
+  | "PLO8"
+  | "Limit Hold'em"
+  | "Mixed"
+  | "Other";
+
 export type GameResult = {
   id: string;
   category: GameCategory;
@@ -10,6 +18,9 @@ export type GameResult = {
   buyInCents: number;
   cashOutCents: number;
   winningsCents: number;
+  rakeCents: number;
+  prizePoolCents: number;
+  pokerFormat: PokerFormat;
   durationMinutes: number;
   finishingPlace: number | null;
   fieldSize: number | null;
