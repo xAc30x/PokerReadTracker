@@ -1,7 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { CreateGameResult, GameCategory, GameResult } from "../game-result-types";
+import type {
+  CreateGameResult,
+  GameCategory,
+  GameResult,
+  PokerFormat,
+} from "../game-result-types";
+
+const POKER_FORMATS: readonly PokerFormat[] = [
+  "NL Hold'em",
+  "PL Omaha",
+  "PLO8",
+  "Limit Hold'em",
+  "Mixed",
+  "Other",
+];
 
 type FormState = {
   playedAt: string;
@@ -11,6 +25,9 @@ type FormState = {
   buyIn: string;
   cashOut: string;
   winnings: string;
+  rake: string;
+  prizePool: string;
+  pokerFormat: PokerFormat;
   durationHours: string;
   finishingPlace: string;
   fieldSize: string;
@@ -34,6 +51,9 @@ function emptyForm(category: GameCategory): FormState {
     buyIn: "",
     cashOut: "",
     winnings: "",
+    rake: "",
+    prizePool: "",
+    pokerFormat: "NL Hold'em",
     durationHours: "",
     finishingPlace: "",
     fieldSize: "",
@@ -66,7 +86,7 @@ function money(cents: number, signed = false) {
 function resultNet(result: GameResult) {
   return result.category === "cash"
     ? result.cashOutCents - result.buyInCents
-    : result.winningsCents - result.buyInCents;
+    : result.winningsCents - result.buyInCents - result.rakeCents;
 }
 
 function displayDate(value: string) {
@@ -107,12 +127,16 @@ export function GameResults() {
         if (active) setResults(body?.results ?? []);
       })
       .catch((loadError) => {
-        if (active) setError(loadError instanceof Error ? loadError.message : "Could not load game results");
+        if (active) {
+          setError(loadError instanceof Error ? loadError.message : "Could not load game results");
+        }
       })
       .finally(() => {
         if (active) setLoading(false);
       });
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, []);
 
   const visibleResults = useMemo(
@@ -120,7 +144,7 @@ export function GameResults() {
     [category, results],
   );
   const net = visibleResults.reduce((total, result) => total + resultNet(result), 0);
-  const cashHours = visibleResults.reduce((total, result) => total + result.durationMinutes, 0) / 60;
+  const hours = visibleResults.reduce((total, result) => total + result.durationMinutes, 0) / 60;
   const tournamentCashes = visibleResults.filter((result) => result.winningsCents > 0).length;
 
   function switchCategory(nextCategory: GameCategory) {
@@ -139,15 +163,24 @@ export function GameResults() {
     const buyInCents = dollarsToCents(form.buyIn);
     const cashOutCents = dollarsToCents(form.cashOut);
     const winningsCents = dollarsToCents(form.winnings);
+    const rakeCents = dollarsToCents(form.rake);
+    const prizePoolCents = dollarsToCents(form.prizePool);
     const durationHours = Number(form.durationHours || 0);
     const finishingPlace = positiveInteger(form.finishingPlace);
     const fieldSize = positiveInteger(form.fieldSize);
 
-    if (!form.name.trim() || buyInCents === null || cashOutCents === null || winningsCents === null) {
+    if (
+      !form.name.trim() ||
+      buyInCents === null ||
+      cashOutCents === null ||
+      winningsCents === null ||
+      rakeCents === null ||
+      prizePoolCents === null
+    ) {
       setError("Enter a name and valid non-negative money amounts.");
       return;
     }
-    if (category === "cash" && (!Number.isFinite(durationHours) || durationHours < 0)) {
+    if (!Number.isFinite(durationHours) || durationHours < 0) {
       setError("Session length must be zero or more hours.");
       return;
     }
@@ -166,7 +199,10 @@ export function GameResults() {
       buyInCents,
       cashOutCents: category === "cash" ? cashOutCents : 0,
       winningsCents: category === "tournament" ? winningsCents : 0,
-      durationMinutes: category === "cash" ? Math.round(durationHours * 60) : 0,
+      rakeCents: category === "tournament" ? rakeCents : 0,
+      prizePoolCents: category === "tournament" ? prizePoolCents : 0,
+      pokerFormat: form.pokerFormat,
+      durationMinutes: Math.round(durationHours * 60),
       finishingPlace: category === "tournament" ? finishingPlace : null,
       fieldSize: category === "tournament" ? fieldSize : null,
       notes: form.notes.trim(),
@@ -258,7 +294,7 @@ export function GameResults() {
 
       <div className="result-summary" aria-label={`${category} results summary`}>
         <div><span>{category === "cash" ? "Sessions" : "Played"}</span><strong>{visibleResults.length}</strong></div>
-        <div><span>{category === "cash" ? "Hours" : "Cashes"}</span><strong>{category === "cash" ? cashHours.toFixed(1) : tournamentCashes}</strong></div>
+        <div><span>{category === "cash" ? "Hours" : "Cashes"}</span><strong>{category === "cash" ? hours.toFixed(1) : tournamentCashes}</strong></div>
         <div className={net >= 0 ? "result-positive" : "result-negative"}><span>Net result</span><strong>{money(net, true)}</strong></div>
       </div>
 
@@ -277,6 +313,12 @@ export function GameResults() {
               Site or venue
               <input maxLength={100} value={form.venue} placeholder="BetMGM or cardroom" onChange={(event) => updateField("venue", event.target.value)} />
             </label>
+            <label>
+              Poker format
+              <select value={form.pokerFormat} onChange={(event) => updateField("pokerFormat", event.target.value)}>
+                {POKER_FORMATS.map((format) => <option key={format} value={format}>{format}</option>)}
+              </select>
+            </label>
             {category === "cash" && (
               <label>
                 Stakes
@@ -288,18 +330,20 @@ export function GameResults() {
               <input type="number" min="0" step="0.01" inputMode="decimal" required value={form.buyIn} onChange={(event) => updateField("buyIn", event.target.value)} />
             </label>
             {category === "cash" ? (
-              <>
-                <label>
-                  Cash-out (C$)
-                  <input type="number" min="0" step="0.01" inputMode="decimal" required value={form.cashOut} onChange={(event) => updateField("cashOut", event.target.value)} />
-                </label>
-                <label>
-                  Session length (hours)
-                  <input type="number" min="0" step="0.25" inputMode="decimal" value={form.durationHours} onChange={(event) => updateField("durationHours", event.target.value)} />
-                </label>
-              </>
+              <label>
+                Cash-out (C$)
+                <input type="number" min="0" step="0.01" inputMode="decimal" required value={form.cashOut} onChange={(event) => updateField("cashOut", event.target.value)} />
+              </label>
             ) : (
               <>
+                <label>
+                  Rake / fee (C$)
+                  <input type="number" min="0" step="0.01" inputMode="decimal" value={form.rake} onChange={(event) => updateField("rake", event.target.value)} />
+                </label>
+                <label>
+                  Prize pool (C$)
+                  <input type="number" min="0" step="0.01" inputMode="decimal" value={form.prizePool} onChange={(event) => updateField("prizePool", event.target.value)} />
+                </label>
                 <label>
                   Winnings (C$)
                   <input type="number" min="0" step="0.01" inputMode="decimal" required value={form.winnings} onChange={(event) => updateField("winnings", event.target.value)} />
@@ -314,6 +358,10 @@ export function GameResults() {
                 </label>
               </>
             )}
+            <label>
+              Session length (hours)
+              <input type="number" min="0" step="0.25" inputMode="decimal" value={form.durationHours} onChange={(event) => updateField("durationHours", event.target.value)} />
+            </label>
           </div>
           <label className="result-notes-label">
             Notes
@@ -340,21 +388,30 @@ export function GameResults() {
         <div className="result-list">
           {visibleResults.map((result) => {
             const netResult = resultNet(result);
+            const tournamentMeta = result.category === "tournament"
+              ? [
+                  result.pokerFormat,
+                  `${ordinal(result.finishingPlace)} of ${result.fieldSize}`,
+                  result.prizePoolCents > 0 ? `${money(result.prizePoolCents)} prize pool` : "",
+                ]
+              : [result.pokerFormat, result.stakes];
             return (
               <article className="result-card" key={result.id}>
                 <div className="result-card-main">
                   <p className="result-date">{displayDate(result.playedAt)}</p>
                   <h3>{result.name}</h3>
                   <p className="result-meta">
-                    {[result.venue, result.category === "cash" ? result.stakes : `${ordinal(result.finishingPlace)} of ${result.fieldSize}`]
-                      .filter(Boolean)
-                      .join(" · ")}
+                    {[result.venue, ...tournamentMeta].filter(Boolean).join(" · ")}
                   </p>
                   {result.notes && <p className="result-notes">{result.notes}</p>}
                 </div>
                 <div className="result-card-numbers">
                   <strong className={netResult >= 0 ? "result-positive" : "result-negative"}>{money(netResult, true)}</strong>
-                  <span>{result.category === "cash" ? `${(result.durationMinutes / 60).toFixed(1)} hours` : `${money(result.winningsCents)} won`}</span>
+                  <span>
+                    {result.category === "cash"
+                      ? `${(result.durationMinutes / 60).toFixed(1)} hours`
+                      : `${money(result.winningsCents)} won${result.rakeCents > 0 ? ` · ${money(result.rakeCents)} fee` : ""}`}
+                  </span>
                   <button type="button" onClick={() => void removeResult(result)}>Remove</button>
                 </div>
               </article>
