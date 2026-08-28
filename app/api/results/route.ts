@@ -1,9 +1,22 @@
 import { getD1 } from "@/db";
-import type { CreateGameResult, GameCategory, GameResult } from "@/app/game-result-types";
+import type {
+  CreateGameResult,
+  GameCategory,
+  GameResult,
+  PokerFormat,
+} from "@/app/game-result-types";
 
 export const dynamic = "force-dynamic";
 
 const OWNER_HEADER = "oai-authenticated-user-email";
+const POKER_FORMATS: readonly PokerFormat[] = [
+  "NL Hold'em",
+  "PL Omaha",
+  "PLO8",
+  "Limit Hold'em",
+  "Mixed",
+  "Other",
+];
 
 type ResultRow = {
   id: string;
@@ -15,6 +28,9 @@ type ResultRow = {
   buy_in_cents: number;
   cash_out_cents: number;
   winnings_cents: number;
+  rake_cents: number;
+  prize_pool_cents: number;
+  poker_format: PokerFormat;
   duration_minutes: number;
   finishing_place: number | null;
   field_size: number | null;
@@ -59,6 +75,12 @@ function cleanPositiveInteger(value: unknown, max: number): number | null {
   return value;
 }
 
+function cleanPokerFormat(value: unknown): PokerFormat | null {
+  return typeof value === "string" && POKER_FORMATS.includes(value as PokerFormat)
+    ? (value as PokerFormat)
+    : null;
+}
+
 function mapResult(row: ResultRow): GameResult {
   return {
     id: row.id,
@@ -70,6 +92,9 @@ function mapResult(row: ResultRow): GameResult {
     buyInCents: Number(row.buy_in_cents),
     cashOutCents: Number(row.cash_out_cents),
     winningsCents: Number(row.winnings_cents),
+    rakeCents: Number(row.rake_cents),
+    prizePoolCents: Number(row.prize_pool_cents),
+    pokerFormat: row.poker_format,
     durationMinutes: Number(row.duration_minutes),
     finishingPlace: row.finishing_place === null ? null : Number(row.finishing_place),
     fieldSize: row.field_size === null ? null : Number(row.field_size),
@@ -86,8 +111,9 @@ export async function GET(request: Request) {
     const response = await getD1()
       .prepare(
         `SELECT id, category, played_at, name, venue, stakes, buy_in_cents,
-                cash_out_cents, winnings_cents, duration_minutes,
-                finishing_place, field_size, notes, created_at
+                cash_out_cents, winnings_cents, rake_cents, prize_pool_cents,
+                poker_format, duration_minutes, finishing_place, field_size,
+                notes, created_at
          FROM game_results
          WHERE owner_key = ?
          ORDER BY played_at DESC, created_at DESC`,
@@ -124,11 +150,23 @@ export async function POST(request: Request) {
   const venue = cleanText(input.venue, 100) ?? "";
   const stakes = cleanText(input.stakes, 40) ?? "";
   const notes = cleanText(input.notes, 2000) ?? "";
+  const pokerFormat = cleanPokerFormat(input.pokerFormat);
   const buyInCents = cleanNonNegativeInteger(input.buyInCents, 100_000_000);
   const cashOutCents = cleanNonNegativeInteger(input.cashOutCents, 100_000_000);
   const winningsCents = cleanNonNegativeInteger(input.winningsCents, 100_000_000);
+  const rakeCents = cleanNonNegativeInteger(input.rakeCents, 100_000_000);
+  const prizePoolCents = cleanNonNegativeInteger(input.prizePoolCents, 10_000_000_000);
   const durationMinutes = cleanNonNegativeInteger(input.durationMinutes, 100_000);
-  if (!name || buyInCents === null || cashOutCents === null || winningsCents === null || durationMinutes === null) {
+  if (
+    !name ||
+    !pokerFormat ||
+    buyInCents === null ||
+    cashOutCents === null ||
+    winningsCents === null ||
+    rakeCents === null ||
+    prizePoolCents === null ||
+    durationMinutes === null
+  ) {
     return jsonError("One or more result fields are invalid.");
   }
 
@@ -147,9 +185,10 @@ export async function POST(request: Request) {
       .prepare(
         `INSERT OR IGNORE INTO game_results
          (id, owner_key, category, played_at, name, venue, stakes,
-          buy_in_cents, cash_out_cents, winnings_cents, duration_minutes,
-          finishing_place, field_size, notes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+          buy_in_cents, cash_out_cents, winnings_cents, rake_cents,
+          prize_pool_cents, poker_format, duration_minutes, finishing_place,
+          field_size, notes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
       )
       .bind(
         input.id,
@@ -162,7 +201,10 @@ export async function POST(request: Request) {
         buyInCents,
         input.category === "cash" ? cashOutCents : 0,
         input.category === "tournament" ? winningsCents : 0,
-        input.category === "cash" ? durationMinutes : 0,
+        input.category === "tournament" ? rakeCents : 0,
+        input.category === "tournament" ? prizePoolCents : 0,
+        pokerFormat,
+        durationMinutes,
         finishingPlace,
         fieldSize,
         notes,
@@ -177,7 +219,10 @@ export async function POST(request: Request) {
       buyInCents,
       cashOutCents: input.category === "cash" ? cashOutCents : 0,
       winningsCents: input.category === "tournament" ? winningsCents : 0,
-      durationMinutes: input.category === "cash" ? durationMinutes : 0,
+      rakeCents: input.category === "tournament" ? rakeCents : 0,
+      prizePoolCents: input.category === "tournament" ? prizePoolCents : 0,
+      pokerFormat,
+      durationMinutes,
       finishingPlace,
       fieldSize,
       notes,
