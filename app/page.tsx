@@ -1,5 +1,5 @@
-import { PokerTracker } from "./components/poker-tracker";
+import { CommandCenterShell } from "./components/command-center-shell";
 
 export default function Home() {
-  return <PokerTracker />;
+  return <CommandCenterShell />;
 }
