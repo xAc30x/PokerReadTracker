@@ -1,0 +1,389 @@
+/* Live-play UX overrides: keep frequent poker tracking actions fast, legible, and touch-safe. */
+
+button,
+[role="button"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.workspace {
+  gap: 20px;
+  grid-template-columns: minmax(0, 1.35fr) minmax(380px, 0.72fr);
+}
+
+.table-section,
+.intel-panel,
+.roster-section,
+.results-section {
+  border-color: #29483c;
+}
+
+.intel-panel {
+  scrollbar-gutter: stable;
+}
+
+/* Player cards should expose the name/read hierarchy immediately. */
+.seat {
+  border-color: #35574a;
+  min-height: 84px;
+  padding: 13px;
+}
+
+.seat:active {
+  transform: translateY(1px) scale(0.995);
+}
+
+.seat--selected {
+  border-color: var(--mint);
+  box-shadow: 0 0 0 3px rgba(93, 240, 175, 0.14), 0 14px 28px rgba(0, 0, 0, 0.26);
+}
+
+.seat-copy strong {
+  font-size: 14px;
+  letter-spacing: -0.015em;
+}
+
+.seat-copy small {
+  color: #a8bbb3;
+  font-size: 10px;
+  font-weight: 650;
+  margin-top: 4px;
+}
+
+.avatar {
+  flex-basis: 44px;
+  height: 44px;
+}
+
+.avatar--empty {
+  border-color: #45675a;
+}
+
+/* Keep the two player modes immediately reachable while the detail panel scrolls. */
+.panel-tabs {
+  position: sticky;
+  top: -1px;
+  z-index: 5;
+  box-shadow: 0 8px 18px rgba(7, 16, 13, 0.2);
+}
+
+.panel-tabs button,
+.style-grid button,
+.bluff-scale button,
+.tag-grid button,
+.unseat-button,
+.remove-player-button,
+.add-pool-button,
+.saved-player-list button,
+.confirm-modal__actions button {
+  min-height: 44px;
+}
+
+/* Direct observations are the highest-priority controls during a hand. */
+.quick-panel {
+  padding-top: 16px;
+}
+
+.stat-strip {
+  margin-bottom: 18px;
+}
+
+.stat-strip div {
+  padding: 12px 8px;
+}
+
+.stat-strip strong {
+  font-size: 20px;
+}
+
+.stat-strip span {
+  font-size: 9px;
+}
+
+.action-group + .action-group {
+  margin-top: 18px;
+  padding-top: 18px;
+}
+
+.action-grid {
+  gap: 9px;
+  margin-top: 10px;
+}
+
+.action-button {
+  min-height: 64px;
+  padding: 10px 11px;
+  transition: border-color 0.12s ease, background 0.12s ease, transform 0.08s ease;
+}
+
+.action-button:active {
+  transform: scale(0.985);
+}
+
+.action-glyph {
+  flex: 0 0 34px;
+  height: 34px;
+  width: 34px;
+}
+
+.action-copy strong {
+  font-size: 12px;
+}
+
+.action-copy small {
+  font-size: 9px;
+}
+
+.quick-tip {
+  background: #09140f;
+  border: 1px solid #20392f;
+  border-radius: 10px;
+  padding: 10px 11px;
+}
+
+/* Inferred reads stay visually separate from observed action counts. */
+.profile-block {
+  border-color: #29463b;
+}
+
+.profile-block .panel-label-row > span,
+.field-help {
+  color: #8fa69c;
+}
+
+.style-grid {
+  gap: 7px;
+}
+
+.style-grid button {
+  font-size: 11px;
+  min-height: 44px;
+}
+
+.bluff-scale button {
+  min-height: 48px;
+}
+
+.tag-grid {
+  gap: 7px;
+}
+
+.tag-grid button {
+  font-size: 10px;
+  font-weight: 700;
+  min-height: 40px;
+  padding: 8px 12px;
+}
+
+.tag-grid button.is-active,
+.style-grid button.is-active {
+  box-shadow: inset 0 0 0 1px rgba(93, 240, 175, 0.18);
+}
+
+.profile-panel input,
+.profile-panel textarea,
+.player-modal input {
+  font-size: 16px;
+}
+
+.profile-panel textarea {
+  line-height: 1.5;
+}
+
+/* Faster player entry and saved-player reuse. */
+.player-modal {
+  border-color: #355a4b;
+}
+
+.inline-form input,
+.search-input {
+  min-height: 50px;
+}
+
+.inline-form button {
+  min-height: 50px;
+  min-width: 76px;
+}
+
+.saved-player-list button {
+  min-height: 58px;
+  padding: 9px 10px;
+}
+
+.saved-player-list button:active,
+.add-pool-button:active,
+.inline-form button:active {
+  transform: scale(0.99);
+}
+
+/* Player pool should remain useful as a rapid recall surface. */
+.roster-list button {
+  min-height: 58px;
+}
+
+.roster-copy strong {
+  font-size: 13px;
+}
+
+.roster-copy small {
+  font-size: 10px;
+}
+
+/* Make destructive operations unmistakable and harder to trigger accidentally. */
+.profile-block--danger {
+  border-color: rgba(255, 141, 128, 0.28);
+}
+
+.remove-player-button {
+  min-width: 112px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .action-button:hover,
+  .style-grid button:hover,
+  .tag-grid button:hover,
+  .saved-player-list button:hover {
+    border-color: #4a7563;
+  }
+}
+
+@media (max-width: 1180px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1.2fr) minmax(350px, 0.8fr);
+  }
+}
+
+@media (max-width: 980px) {
+  .workspace {
+    gap: 14px;
+    grid-template-columns: 1fr;
+  }
+
+  .panel-tabs {
+    top: 64px;
+  }
+
+  .intel-panel {
+    scroll-margin-top: 72px;
+  }
+
+  .action-grid--4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .action-grid--4 .action-button {
+    align-items: center;
+    flex-direction: column;
+    gap: 6px;
+    justify-content: center;
+    min-height: 78px;
+    text-align: center;
+  }
+
+  .action-grid--4 .action-copy small {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .table-section {
+    padding: 14px 10px;
+  }
+
+  .intel-panel {
+    padding: 14px;
+  }
+
+  .table-wrap {
+    margin-top: 18px;
+  }
+
+  .seat {
+    min-height: 74px;
+    padding: 9px 8px;
+  }
+
+  .seat-copy strong {
+    font-size: 12px;
+  }
+
+  .seat-copy small {
+    font-size: 9px;
+  }
+
+  .avatar {
+    flex-basis: 38px;
+    height: 38px;
+  }
+
+  .panel-tabs {
+    top: 63px;
+  }
+
+  .panel-tabs button {
+    min-height: 44px;
+  }
+
+  .stat-strip strong {
+    font-size: 18px;
+  }
+
+  .action-grid--4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .action-grid--4 .action-button {
+    align-items: center;
+    flex-direction: row;
+    justify-content: flex-start;
+    min-height: 62px;
+    text-align: left;
+  }
+
+  .action-grid--4 .action-copy small {
+    display: block;
+  }
+
+  .action-button {
+    min-height: 62px;
+  }
+
+  .tag-grid button {
+    flex: 1 1 calc(50% - 7px);
+    justify-content: center;
+    text-align: center;
+  }
+
+  .inline-form {
+    align-items: stretch;
+  }
+
+  .inline-form button {
+    padding-inline: 16px;
+  }
+
+  .player-modal {
+    max-height: 94vh;
+  }
+
+  .toast {
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: calc(100% - 20px);
+  }
+}
+
+@media (max-width: 390px) {
+  .seat {
+    gap: 7px;
+  }
+
+  .seat-position {
+    font-size: 9px;
+    min-width: 28px;
+    padding-inline: 5px;
+  }
+
+  .action-copy strong {
+    font-size: 11px;
+  }
+}
