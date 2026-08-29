@@ -192,8 +192,8 @@ export function AnalyticsDashboard() {
       return running;
     });
     const recent = chronological.slice(-10);
-    const startIndex = Math.max(0, cumulative.length - recent.length - 1);
-    let recentRunning = cumulative[startIndex] ?? 0;
+    const priorIndex = cumulative.length - recent.length - 1;
+    let recentRunning = priorIndex >= 0 ? cumulative[priorIndex] ?? 0 : 0;
     const recentCumulative = recent.map((result) => {
       recentRunning += resultNet(result);
       return recentRunning;
