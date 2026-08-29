@@ -90,20 +90,32 @@ type LastLog = ActionDefinition & { id: string; playerId: string; playerName: st
 
 const PREFLOP_ACTIONS: ActionDefinition[] = [
   { phase: "preflop", action: "fold", label: "Fold", glyph: "F" },
-  { phase: "preflop", action: "limp-call", label: "Limp / call", glyph: "LC" },
-  { phase: "preflop", action: "raise", label: "Raise", glyph: "R", tone: "positive" },
-  { phase: "preflop", action: "three-bet", label: "3-bet+", glyph: "3+", tone: "warning" },
+  { phase: "preflop", action: "limp", label: "Limp", glyph: "L" },
+  { phase: "preflop", action: "call", label: "Call", glyph: "C" },
+  { phase: "preflop", action: "open-raise", label: "Open Raise", glyph: "OR", tone: "positive" },
+  { phase: "preflop", action: "three-bet", label: "3-Bet", glyph: "3B", tone: "warning" },
+  { phase: "preflop", action: "four-bet-plus", label: "4-Bet+", glyph: "4+", tone: "warning" },
+  { phase: "preflop", action: "all-in", label: "All-In", glyph: "AI", tone: "warning" },
+  { phase: "preflop", action: "squeeze", label: "Squeeze", glyph: "SQ", tone: "warning" },
+  { phase: "preflop", action: "cold-call", label: "Cold Call", glyph: "CC" },
 ];
 const POSTFLOP_ACTIONS: ActionDefinition[] = [
   { phase: "postflop", action: "check", label: "Check", glyph: "X" },
-  { phase: "postflop", action: "call", label: "Call", glyph: "C" },
   { phase: "postflop", action: "bet", label: "Bet", glyph: "B", tone: "positive" },
+  { phase: "postflop", action: "call", label: "Call", glyph: "C" },
   { phase: "postflop", action: "postflop-raise", label: "Raise", glyph: "R+", tone: "warning" },
   { phase: "postflop", action: "postflop-fold", label: "Fold", glyph: "F" },
+  { phase: "postflop", action: "check-raise", label: "Check-Raise", glyph: "XR", tone: "warning" },
+  { phase: "postflop", action: "donk-bet", label: "Donk Bet", glyph: "DB", tone: "positive" },
+  { phase: "postflop", action: "postflop-all-in", label: "All-In", glyph: "AI", tone: "warning" },
 ];
 const SHOWDOWN_ACTIONS: ActionDefinition[] = [
-  { phase: "showdown", action: "bluff-shown", label: "Bluff shown", glyph: "BL", tone: "warning" },
-  { phase: "showdown", action: "value-shown", label: "Value shown", glyph: "V", tone: "positive" },
+  { phase: "showdown", action: "bluff-shown", label: "Showed Bluff", glyph: "BL", tone: "warning" },
+  { phase: "showdown", action: "value-shown", label: "Showed Value", glyph: "V", tone: "positive" },
+  { phase: "showdown", action: "draw-shown", label: "Showed Draw", glyph: "DR" },
+  { phase: "showdown", action: "slowplay-shown", label: "Slow-Played", glyph: "SP", tone: "positive" },
+  { phase: "showdown", action: "hero-call-shown", label: "Hero / Light Call", glyph: "HC" },
+  { phase: "showdown", action: "mucked-unknown", label: "Mucked / Unknown", glyph: "?" },
 ];
 
 function LogoMark() {
@@ -828,10 +840,10 @@ export function PokerTracker() {
                     <div><strong>{postflopTotal}</strong><span>Post-flop reads</span></div>
                     <div><strong>{revealedBluffRate}</strong><span>Shown bluffs · n={showdownTotal}</span></div>
                   </div>
-                  {renderActionGroup("Pre-flop action", "one tap per observed hand", PREFLOP_ACTIONS)}
-                  {renderActionGroup("Post-flop action", "log the defining action", POSTFLOP_ACTIONS)}
-                  {renderActionGroup("Showdown evidence", "only when cards are shown", SHOWDOWN_ACTIONS)}
-                  <p className="quick-tip">Counts are direct observations. They are not inferred VPIP, PFR, or bluff statistics.</p>
+                  {renderActionGroup("Pre-Flop", "one tap per observed action", PREFLOP_ACTIONS)}
+                  {renderActionGroup("Post-Flop", "log the defining action", POSTFLOP_ACTIONS)}
+                  {renderActionGroup("Showdown Evidence", "kept separate from action stats", SHOWDOWN_ACTIONS)}
+                  <p className="quick-tip">Counts are direct observations. Showdown evidence is stored separately and never counted as ordinary post-flop action.</p>
                 </div>
               ) : (
                 <div className="profile-panel" role="tabpanel">
