@@ -13,16 +13,30 @@ const OWNER_HEADER = "oai-authenticated-user-email";
 const VALID_PHASES = new Set(["preflop", "postflop", "showdown"]);
 const VALID_ACTIONS = new Set([
   "fold",
-  "limp-call",
-  "raise",
-  "three-bet",
-  "check",
+  "limp",
   "call",
+  "open-raise",
+  "three-bet",
+  "four-bet-plus",
+  "all-in",
+  "squeeze",
+  "cold-call",
+  "check",
   "bet",
   "postflop-raise",
   "postflop-fold",
+  "check-raise",
+  "donk-bet",
+  "postflop-all-in",
   "bluff-shown",
   "value-shown",
+  "draw-shown",
+  "slowplay-shown",
+  "hero-call-shown",
+  "mucked-unknown",
+  // Keep legacy action ids valid so queued/offline observations from older builds still sync.
+  "limp-call",
+  "raise",
 ]);
 
 type CountRow = {
