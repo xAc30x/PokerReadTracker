@@ -185,19 +185,12 @@ export function AnalyticsDashboard() {
     const cashNet = cash.reduce((total, result) => total + resultNet(result), 0);
     const tournamentNet = tournaments.reduce((total, result) => total + resultNet(result), 0);
     const tournamentCashes = tournaments.filter((result) => result.winningsCents > 0).length;
-
-    let running = 0;
-    const cumulative = chronological.map((result) => {
-      running += resultNet(result);
-      return running;
-    });
+    const cumulative = chronological.reduce<number[]>((points, result) => {
+      const previous = points.at(-1) ?? 0;
+      return [...points, previous + resultNet(result)];
+    }, []);
     const recent = chronological.slice(-10);
-    const priorIndex = cumulative.length - recent.length - 1;
-    let recentRunning = priorIndex >= 0 ? cumulative[priorIndex] ?? 0 : 0;
-    const recentCumulative = recent.map((result) => {
-      recentRunning += resultNet(result);
-      return recentRunning;
-    });
+    const recentCumulative = cumulative.slice(-10);
 
     return {
       net,
