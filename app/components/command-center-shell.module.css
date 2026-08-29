@@ -1,0 +1,296 @@
+.shell {
+  min-height: 100vh;
+}
+
+.workspaceNav {
+  align-items: center;
+  background: rgba(7, 15, 12, 0.96);
+  border-bottom: 1px solid #20362d;
+  display: flex;
+  gap: 22px;
+  justify-content: space-between;
+  padding: 10px 22px;
+  position: sticky;
+  top: 0;
+  z-index: 70;
+}
+
+.workspaceBrand {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.brandDot {
+  background: #59e3a2;
+  border-radius: 50%;
+  box-shadow: 0 0 0 5px rgba(89, 227, 162, 0.08);
+  flex: 0 0 auto;
+  height: 9px;
+  width: 9px;
+}
+
+.workspaceBrand strong,
+.workspaceBrand span {
+  display: block;
+}
+
+.workspaceBrand strong {
+  color: #edf6f2;
+  font-size: 12px;
+  letter-spacing: -0.01em;
+}
+
+.workspaceBrand span {
+  color: #71867d;
+  font-size: 8px;
+  margin-top: 2px;
+}
+
+.desktopModes {
+  background: #09130f;
+  border: 1px solid #1f352c;
+  border-radius: 13px;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(3, minmax(145px, 1fr));
+  padding: 4px;
+}
+
+.desktopModes button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+  color: #7f938a;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  min-height: 44px;
+  padding: 7px 10px;
+  text-align: left;
+}
+
+.desktopModes button:hover {
+  background: #102019;
+}
+
+.desktopModes button > span:last-child {
+  min-width: 0;
+}
+
+.desktopModes strong,
+.desktopModes small {
+  display: block;
+}
+
+.desktopModes strong {
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.desktopModes small {
+  color: #657a71;
+  font-size: 7px;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.desktopModes .activeMode {
+  background: #153325;
+  color: #79efb9;
+}
+
+.desktopModes .activeMode small {
+  color: #88bda5;
+}
+
+.modeIcon,
+.mobileNav button > span {
+  align-items: center;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.modeIcon svg {
+  fill: none;
+  height: 16px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+  width: 16px;
+}
+
+.workspaceView {
+  min-height: calc(100vh - 66px);
+}
+
+.visible {
+  display: block;
+}
+
+.hidden {
+  display: none;
+}
+
+.liveOnly :global(.results-section) {
+  display: none;
+}
+
+.resultsWorkspace {
+  margin: 0 auto;
+  max-width: 1440px;
+  padding: 24px 0 70px;
+}
+
+.resultsHero {
+  background:
+    radial-gradient(circle at 88% 18%, rgba(89, 227, 162, 0.1), transparent 28%),
+    #0a1512;
+  border: 1px solid #213a30;
+  border-radius: 20px;
+  margin: 0 24px;
+  padding: 24px;
+}
+
+.resultsHero p {
+  color: #5ae3a3;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.resultsHero h1 {
+  color: #eef7f3;
+  font-size: clamp(26px, 4vw, 39px);
+  letter-spacing: -0.045em;
+  margin: 7px 0 0;
+}
+
+.resultsHero span {
+  color: #82978e;
+  display: block;
+  font-size: 11px;
+  line-height: 1.6;
+  margin-top: 9px;
+  max-width: 680px;
+}
+
+.mobileNav {
+  display: none;
+}
+
+@media (max-width: 980px) {
+  .workspaceNav {
+    padding: 9px 14px;
+  }
+
+  .desktopModes {
+    grid-template-columns: repeat(3, minmax(110px, 1fr));
+  }
+
+  .desktopModes small {
+    display: none;
+  }
+
+  .desktopModes button {
+    justify-content: center;
+    min-height: 40px;
+    padding: 6px 9px;
+  }
+}
+
+@media (max-width: 700px) {
+  .workspaceNav {
+    justify-content: center;
+    min-height: 48px;
+    padding: 8px 12px;
+  }
+
+  .workspaceBrand span {
+    display: none;
+  }
+
+  .desktopModes {
+    display: none;
+  }
+
+  .workspaceView {
+    min-height: calc(100vh - 48px);
+    padding-bottom: 72px;
+  }
+
+  .resultsWorkspace {
+    padding: 12px 0 86px;
+  }
+
+  .resultsHero {
+    border-radius: 15px;
+    margin: 0 10px;
+    padding: 18px;
+  }
+
+  .resultsHero h1 {
+    font-size: 27px;
+  }
+
+  .mobileNav {
+    align-items: stretch;
+    background: rgba(7, 15, 12, 0.98);
+    border: 1px solid #244036;
+    border-bottom: 0;
+    border-radius: 18px 18px 0 0;
+    bottom: 0;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    left: 0;
+    padding: 6px max(8px, env(safe-area-inset-left)) calc(6px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-right));
+    position: fixed;
+    right: 0;
+    z-index: 100;
+  }
+
+  .mobileNav button {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 12px;
+    color: #6f847b;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    justify-content: center;
+    min-height: 52px;
+    touch-action: manipulation;
+  }
+
+  .mobileNav button > span {
+    height: 21px;
+    width: 21px;
+  }
+
+  .mobileNav svg {
+    fill: none;
+    height: 20px;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+    width: 20px;
+  }
+
+  .mobileNav strong {
+    font-size: 8px;
+    font-weight: 900;
+  }
+
+  .mobileNav .mobileActive {
+    background: #123025;
+    color: #78efb8;
+  }
+}
