@@ -107,6 +107,21 @@ function ordinal(value: number | null) {
   return `${value}th`;
 }
 
+function buildTrendPoints(values: number[]) {
+  if (values.length === 0) return "";
+  if (values.length === 1) return "0,26 100,26";
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = Math.max(1, max - min);
+  return values
+    .map((value, index) => {
+      const x = (index / (values.length - 1)) * 100;
+      const y = 46 - ((value - min) / range) * 40;
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    })
+    .join(" ");
+}
+
 export function GameResults() {
   const [category, setCategory] = useState<GameCategory>("cash");
   const [results, setResults] = useState<GameResult[]>([]);
@@ -115,6 +130,11 @@ export function GameResults() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [formatFilter, setFormatFilter] = useState<"all" | PokerFormat>("all");
+  const [stakesFilter, setStakesFilter] = useState("all");
 
   useEffect(() => {
     let active = true;
@@ -139,18 +159,74 @@ export function GameResults() {
     };
   }, []);
 
-  const visibleResults = useMemo(
-    () => results.filter((result) => result.category === category),
-    [category, results],
+  const stakesOptions = useMemo(
+    () => Array.from(
+      new Set(
+        results
+          .filter((result) => result.category === "cash" && result.stakes.trim())
+          .map((result) => result.stakes.trim()),
+      ),
+    ).sort((a, b) => a.localeCompare(b)),
+    [results],
   );
-  const net = visibleResults.reduce((total, result) => total + resultNet(result), 0);
-  const hours = visibleResults.reduce((total, result) => total + result.durationMinutes, 0) / 60;
-  const tournamentCashes = visibleResults.filter((result) => result.winningsCents > 0).length;
+
+  const visibleResults = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return results.filter((result) => {
+      if (result.category !== category) return false;
+      if (dateFrom && result.playedAt < dateFrom) return false;
+      if (dateTo && result.playedAt > dateTo) return false;
+      if (formatFilter !== "all" && result.pokerFormat !== formatFilter) return false;
+      if (category === "cash" && stakesFilter !== "all" && result.stakes !== stakesFilter) return false;
+      if (normalizedQuery) {
+        const haystack = [result.name, result.venue, result.stakes, result.notes, result.pokerFormat]
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(normalizedQuery)) return false;
+      }
+      return true;
+    });
+  }, [category, dateFrom, dateTo, formatFilter, query, results, stakesFilter]);
+
+  const analytics = useMemo(() => {
+    const net = visibleResults.reduce((total, result) => total + resultNet(result), 0);
+    const minutes = visibleResults.reduce((total, result) => total + result.durationMinutes, 0);
+    const tournamentCashes = visibleResults.filter((result) => result.winningsCents > 0).length;
+    const invested = visibleResults.reduce(
+      (total, result) => total + result.buyInCents + (result.category === "tournament" ? result.rakeCents : 0),
+      0,
+    );
+    const chronological = [...visibleResults].sort(
+      (a, b) => a.playedAt.localeCompare(b.playedAt) || a.createdAt.localeCompare(b.createdAt),
+    );
+    const cumulative = chronological.reduce<number[]>((points, result) => {
+      const previous = points.at(-1) ?? 0;
+      return [...points, previous + resultNet(result)];
+    }, []);
+    return {
+      net,
+      hours: minutes / 60,
+      hourly: minutes > 0 ? Math.round((net / minutes) * 60) : 0,
+      tournamentCashes,
+      roi: invested > 0 ? Math.round((net / invested) * 1000) / 10 : null,
+      average: visibleResults.length ? Math.round(net / visibleResults.length) : 0,
+      trendPoints: buildTrendPoints(cumulative),
+    };
+  }, [visibleResults]);
+
+  function resetFilters() {
+    setQuery("");
+    setDateFrom("");
+    setDateTo("");
+    setFormatFilter("all");
+    setStakesFilter("all");
+  }
 
   function switchCategory(nextCategory: GameCategory) {
     setCategory(nextCategory);
     setForm(emptyForm(nextCategory));
     setFormOpen(false);
+    setStakesFilter("all");
     setError(null);
   }
 
@@ -292,11 +368,53 @@ export function GameResults() {
         </button>
       </div>
 
-      <div className="result-summary" aria-label={`${category} results summary`}>
-        <div><span>{category === "cash" ? "Sessions" : "Played"}</span><strong>{visibleResults.length}</strong></div>
-        <div><span>{category === "cash" ? "Hours" : "Cashes"}</span><strong>{category === "cash" ? hours.toFixed(1) : tournamentCashes}</strong></div>
-        <div className={net >= 0 ? "result-positive" : "result-negative"}><span>Net result</span><strong>{money(net, true)}</strong></div>
+      <div className="results-filter-bar" aria-label="Result filters">
+        <label>
+          <span>Search venue / game</span>
+          <input value={query} placeholder="BetMGM, Friday cash…" onChange={(event) => setQuery(event.target.value)} />
+        </label>
+        <label>
+          <span>From</span>
+          <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+        </label>
+        <label>
+          <span>To</span>
+          <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+        </label>
+        <label>
+          <span>Format</span>
+          <select value={formatFilter} onChange={(event) => setFormatFilter(event.target.value as "all" | PokerFormat)}>
+            <option value="all">All formats</option>
+            {POKER_FORMATS.map((format) => <option key={format} value={format}>{format}</option>)}
+          </select>
+        </label>
+        {category === "cash" && (
+          <label>
+            <span>Stakes</span>
+            <select value={stakesFilter} onChange={(event) => setStakesFilter(event.target.value)}>
+              <option value="all">All stakes</option>
+              {stakesOptions.map((stakes) => <option key={stakes} value={stakes}>{stakes}</option>)}
+            </select>
+          </label>
+        )}
+        <button className="results-filter-reset" type="button" onClick={resetFilters}>Reset filters</button>
       </div>
+
+      <div className="results-performance-grid" aria-label={`${category} filtered performance`}>
+        <div><span>Filtered games</span><strong>{visibleResults.length}</strong><small>{category === "cash" ? `${analytics.hours.toFixed(1)} hours` : `${analytics.tournamentCashes} cashes`}</small></div>
+        <div><span>Net</span><strong className={analytics.net >= 0 ? "result-positive" : "result-negative"}>{money(analytics.net, true)}</strong><small>selected results</small></div>
+        <div><span>{category === "cash" ? "Hourly" : "ROI"}</span><strong>{category === "cash" ? money(analytics.hourly, true) : analytics.roi === null ? "—" : `${analytics.roi}%`}</strong><small>{category === "cash" ? "per recorded hour" : "net / buy-ins + fees"}</small></div>
+        <div><span>Average result</span><strong>{money(analytics.average, true)}</strong><small>per filtered game</small></div>
+      </div>
+
+      {visibleResults.length > 0 && (
+        <div className="results-chart" aria-label="Cumulative filtered results">
+          <svg viewBox="0 0 100 52" preserveAspectRatio="none" role="img">
+            <line x1="0" y1="46" x2="100" y2="46" />
+            <polyline points={analytics.trendPoints} />
+          </svg>
+        </div>
+      )}
 
       {formOpen && (
         <form className="result-form" onSubmit={submitResult}>
@@ -380,9 +498,11 @@ export function GameResults() {
         <div className="results-empty">Loading your game history…</div>
       ) : visibleResults.length === 0 ? (
         <div className="results-empty">
-          {category === "cash"
-            ? "No cash games logged yet. Add your first session to start tracking profit and playing time."
-            : "No tournaments logged yet. Add your first result to track finishes, cashes, and profit."}
+          {results.some((result) => result.category === category)
+            ? "No results match the current filters."
+            : category === "cash"
+              ? "No cash games logged yet. Add your first session to start tracking profit and playing time."
+              : "No tournaments logged yet. Add your first result to track finishes, cashes, and profit."}
         </div>
       ) : (
         <div className="result-list">

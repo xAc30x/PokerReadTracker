@@ -24,7 +24,9 @@ const EMPTY_TRACKER: TrackerState = {
   players: [],
   seats: [],
   counts: {},
-  table: { positionOffset: 0, handNumber: 1, tableSize: 6 },
+  hudStats: {},
+  recentHands: [],
+  table: { positionOffset: 0, handNumber: 1, tableSize: 6, currentHandId: "" },
 };
 
 const STYLE_LABELS: Record<Player["playStyle"], string> = {
@@ -65,6 +67,11 @@ function money(cents: number) {
 
 function percentage(value: number, total: number) {
   return total > 0 ? Math.round((value / total) * 100) : 0;
+}
+
+function hudMetric(value: number | null | undefined) {
+  if (value === null || value === undefined) return "—";
+  return Number.isInteger(value) ? `${value}%` : `${value.toFixed(1)}%`;
 }
 
 function buildTrendPoints(values: number[]) {
@@ -208,6 +215,10 @@ export function AnalyticsDashboard() {
 
   const totalReads = playerReads.reduce((total, read) => total + read.total, 0);
   const showdownSamples = playerReads.reduce((total, read) => total + read.showdown, 0);
+  const handLinkedSamples = Object.values(tracker.hudStats).reduce(
+    (total, stats) => total + stats.sampleHands,
+    0,
+  );
 
   if (status === "loading") {
     return <section className={styles.loading}>Building your analytics view…</section>;
@@ -228,10 +239,10 @@ export function AnalyticsDashboard() {
           <p className={styles.eyebrow}>Study mode</p>
           <h1>Performance & player analytics</h1>
           <p className={styles.heroCopy}>
-            Review direct observations and recorded results away from the live table. Observation shares are descriptive evidence, not inferred HUD statistics.
+            Hand-linked VPIP, PFR and 3-bet metrics use explicit observed samples. Behavioral shares below remain descriptive evidence and are kept separate from HUD statistics.
           </p>
         </div>
-        <div className={styles.samplePill}>{totalReads} direct reads</div>
+        <div className={styles.samplePill}>{handLinkedSamples} hand-linked samples</div>
       </header>
 
       <section className={styles.metrics} aria-label="Analytics summary">
@@ -331,7 +342,7 @@ export function AnalyticsDashboard() {
             <p className={styles.eyebrow}>Opponent study</p>
             <h2 id="player-analytics-heading">Player tendency board</h2>
           </div>
-          <span>Direct observations only</span>
+          <span>HUD stats + direct observations</span>
         </div>
 
         {playerReads.length ? (
@@ -343,6 +354,7 @@ export function AnalyticsDashboard() {
               const foldShare = percentage(read.folds, behavioralTotal);
               const shownTotal = read.bluffShown + read.valueShown;
               const bluffEvidence = percentage(read.bluffShown, shownTotal);
+              const hud = tracker.hudStats[read.player.id];
 
               return (
                 <article key={read.player.id} className={styles.playerCard} data-style={read.player.playStyle}>
@@ -351,21 +363,21 @@ export function AnalyticsDashboard() {
                       <strong>{read.player.name}</strong>
                       <span>{STYLE_LABELS[read.player.playStyle]}</span>
                     </div>
-                    <span className={styles.readCount}>{read.total} reads</span>
+                    <span className={styles.readCount}>{hud?.sampleHands ?? 0} hands</span>
                   </div>
 
                   <div className={styles.phaseCounts}>
-                    <span><strong>{read.preflop}</strong> pre-flop</span>
-                    <span><strong>{read.postflop}</strong> post-flop</span>
-                    <span><strong>{read.showdown}</strong> showdown</span>
+                    <span><strong>{hudMetric(hud?.vpipPct)}</strong> VPIP</span>
+                    <span><strong>{hudMetric(hud?.pfrPct)}</strong> PFR</span>
+                    <span><strong>{hudMetric(hud?.threeBetPct)}</strong> 3-Bet · n={hud?.threeBetOpportunities ?? 0}</span>
                   </div>
 
                   <div className={styles.tendencyRow}>
-                    <div><span>Aggressive</span><strong>{aggressionShare}%</strong></div>
+                    <div><span>Aggressive evidence</span><strong>{aggressionShare}%</strong></div>
                     <div className={styles.track}><span style={{ width: `${aggressionShare}%` }} /></div>
                   </div>
                   <div className={styles.tendencyRow}>
-                    <div><span>Passive</span><strong>{passiveShare}%</strong></div>
+                    <div><span>Passive evidence</span><strong>{passiveShare}%</strong></div>
                     <div className={styles.track}><span style={{ width: `${passiveShare}%` }} /></div>
                   </div>
                   <div className={styles.tendencyRow}>
@@ -374,8 +386,8 @@ export function AnalyticsDashboard() {
                   </div>
 
                   <footer className={styles.playerFooter}>
-                    <span>Bluff read: {BLUFF_LABELS[read.player.bluffLevel]}</span>
-                    <span>Shown bluff evidence: {shownTotal ? `${bluffEvidence}% · n=${shownTotal}` : "—"}</span>
+                    <span>{read.preflop} pre-flop · {read.postflop} post-flop · {read.showdown} showdown reads</span>
+                    <span>Bluff read: {BLUFF_LABELS[read.player.bluffLevel]} · shown bluff evidence: {shownTotal ? `${bluffEvidence}% · n=${shownTotal}` : "—"}</span>
                   </footer>
                 </article>
               );
