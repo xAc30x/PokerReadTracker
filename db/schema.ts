@@ -59,6 +59,7 @@ export const observations = sqliteTable(
       .notNull()
       .references(() => players.id, { onDelete: "cascade" }),
     phase: text("phase").notNull(),
+    street: text("street").notNull().default(""),
     action: text("action").notNull(),
     handId: text("hand_id").notNull().default(""),
     handNumber: integer("hand_number").notNull().default(0),
