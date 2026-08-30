@@ -41,3 +41,5 @@ next-env.d.ts
 /outputs/
 /work/
 *.tsbuildinfo
+/ios/build/
+/ios/*.xcodeproj/
