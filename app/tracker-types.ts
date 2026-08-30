@@ -44,7 +44,7 @@ export type RecentObservation = {
   playerId: string;
   playerName: string;
   phase: ObservationPhase;
-  street: ObservationStreet | null;
+  street?: ObservationStreet | null;
   action: string;
   handId: string;
   handNumber: number;
