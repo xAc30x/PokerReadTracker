@@ -75,7 +75,7 @@ final class TrackerStore {
     func log(action: String, street: Street? = nil) {
         guard let playerID = snapshot.selectedPlayerID else { return }
         let effectiveStreet = street ?? snapshot.currentStreet
-        let observation = Observation(
+        let observation = PokerObservation(
             playerID: playerID,
             street: effectiveStreet,
             action: action,
