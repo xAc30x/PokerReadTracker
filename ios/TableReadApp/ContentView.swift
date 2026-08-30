@@ -2,7 +2,9 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var store: TrackerStore
+    @ObservedObject var sync: SyncController
     @State private var newPlayerName = ""
+    @State private var showingPairing = false
 
     private let preflopActions = ["Fold", "Limp", "Call", "Open", "3-Bet", "4-Bet+", "Squeeze", "All-In"]
     private let postflopActions = ["Check", "Bet", "Call", "Raise", "Fold", "Check-Raise", "Donk", "All-In"]
@@ -13,6 +15,7 @@ struct ContentView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     sessionHeader
+                    syncBanner
                     playerSwitcher
                     if store.selectedPlayer != nil {
                         selectedPlayerCard
@@ -32,7 +35,19 @@ struct ContentView: View {
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("TableRead")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        if sync.isPaired {
+                            Task { await sync.sync(store: store) }
+                        } else {
+                            showingPairing = true
+                        }
+                    } label: {
+                        Image(systemName: sync.isPaired ? "arrow.triangle.2.circlepath" : "iphone.and.arrow.forward")
+                    }
+                    .disabled(sync.isSyncing)
+                    .accessibilityLabel(sync.isPaired ? "Sync TableRead" : "Pair iPhone")
+
                     Button(store.snapshot.gameMode ? "Exit Game" : "Game Mode") {
                         store.setGameMode(!store.snapshot.gameMode)
                     }
@@ -40,6 +55,9 @@ struct ContentView: View {
             }
             .safeAreaInset(edge: .bottom) {
                 handFooter
+            }
+            .sheet(isPresented: $showingPairing) {
+                PairingView(store: store, sync: sync)
             }
             .alert("Storage Error", isPresented: Binding(
                 get: { store.persistenceError != nil },
@@ -50,6 +68,24 @@ struct ContentView: View {
                 Text(store.persistenceError ?? "Unknown storage error")
             }
         }
+    }
+
+    private var syncBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: sync.isPaired ? (sync.isSyncing ? "arrow.triangle.2.circlepath" : "checkmark.icloud") : "icloud.slash")
+                .foregroundStyle(sync.isPaired ? Color.accentColor : .secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(sync.status).font(.subheadline.weight(.semibold))
+                Text(sync.isPaired ? "Offline changes stay on this iPhone until the next sync." : "Pair this iPhone to sync with your TableRead account.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(sync.isPaired ? "Account" : "Pair") { showingPairing = true }
+                .buttonStyle(.bordered)
+        }
+        .padding()
+        .background(.background, in: RoundedRectangle(cornerRadius: 18))
     }
 
     private var sessionHeader: some View {

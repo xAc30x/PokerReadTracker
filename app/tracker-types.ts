@@ -9,6 +9,7 @@ export const PLAY_STYLES = [
 
 export type PlayStyle = (typeof PLAY_STYLES)[number];
 export type ObservationPhase = "preflop" | "postflop" | "showdown";
+export type ObservationStreet = "flop" | "turn" | "river";
 export type PreflopContext = "unopened" | "facing-raise";
 
 export type Player = {
@@ -43,6 +44,7 @@ export type RecentObservation = {
   playerId: string;
   playerName: string;
   phase: ObservationPhase;
+  street?: ObservationStreet | null;
   action: string;
   handId: string;
   handNumber: number;
@@ -120,6 +122,7 @@ export type TrackerMutation =
       id: string;
       playerId: string;
       phase: ObservationPhase;
+      street?: ObservationStreet;
       action: string;
       handId?: string;
       handNumber?: number;

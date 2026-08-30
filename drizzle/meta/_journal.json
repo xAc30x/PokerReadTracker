@@ -57,6 +57,13 @@
       "when": 1788055260000,
       "tag": "0007_hand_evidence",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1788087600000,
+      "tag": "0008_mobile_auth",
+      "breakpoints": true
     }
   ]
 }

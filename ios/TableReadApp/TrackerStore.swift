@@ -36,6 +36,7 @@ final class TrackerStore: ObservableObject {
         } else {
             self.snapshot = .empty
         }
+        ensureSyncIdentifiers()
     }
 
     var selectedPlayer: Player? {
@@ -82,12 +83,14 @@ final class TrackerStore: ObservableObject {
 
     func log(action: String, street: Street? = nil) {
         guard let playerID = snapshot.selectedPlayerID else { return }
+        if snapshot.currentHandID == nil { snapshot.currentHandID = UUID() }
         let effectiveStreet = street ?? snapshot.currentStreet
         let observation = PokerObservation(
             playerID: playerID,
             street: effectiveStreet,
             action: action,
-            handNumber: snapshot.handNumber
+            handNumber: snapshot.handNumber,
+            handID: snapshot.currentHandID
         )
         snapshot.observations.append(observation)
         if effectiveStreet == .preflop {
@@ -99,7 +102,10 @@ final class TrackerStore: ObservableObject {
     func undoLastObservation() {
         guard let playerID = snapshot.selectedPlayerID,
               let index = snapshot.observations.lastIndex(where: { $0.playerID == playerID }) else { return }
-        snapshot.observations.remove(at: index)
+        let removed = snapshot.observations.remove(at: index)
+        var pending = snapshot.pendingUndoIDs ?? []
+        if !pending.contains(removed.id) { pending.append(removed.id) }
+        snapshot.pendingUndoIDs = pending
         rebuildStats(for: playerID)
         persist()
     }
@@ -107,13 +113,68 @@ final class TrackerStore: ObservableObject {
     func nextHand() {
         snapshot.handNumber += 1
         snapshot.currentStreet = .preflop
+        snapshot.currentHandID = UUID()
         persist()
+    }
+
+    func ensureSyncIdentifiers() {
+        if snapshot.currentHandID == nil { snapshot.currentHandID = UUID() }
+        if snapshot.pendingUndoIDs == nil { snapshot.pendingUndoIDs = [] }
+
+        var handIDs: [Int: UUID] = [:]
+        for observation in snapshot.observations where observation.handID != nil {
+            handIDs[observation.handNumber] = observation.handID
+        }
+        for index in snapshot.observations.indices where snapshot.observations[index].handID == nil {
+            let handNumber = snapshot.observations[index].handNumber
+            let handID = handIDs[handNumber] ?? UUID()
+            handIDs[handNumber] = handID
+            snapshot.observations[index].handID = handID
+        }
+        persist()
+    }
+
+    func applyServerSnapshot(players remotePlayers: [Player], observations remoteObservations: [PokerObservation]) {
+        let localByID = Dictionary(uniqueKeysWithValues: snapshot.players.map { ($0.id, $0) })
+        snapshot.players = remotePlayers.map { remote in
+            guard let local = localByID[remote.id] else { return remote }
+            var merged = remote
+            merged.stack = local.stack
+            merged.wallet = local.wallet
+            merged.tag = local.tag
+            merged.sessionNote = local.sessionNote
+            return merged
+        }
+        snapshot.observations = remoteObservations
+        snapshot.pendingUndoIDs = []
+
+        if let selected = snapshot.selectedPlayerID,
+           !snapshot.players.contains(where: { $0.id == selected }) {
+            snapshot.selectedPlayerID = snapshot.players.first?.id
+        } else if snapshot.selectedPlayerID == nil {
+            snapshot.selectedPlayerID = snapshot.players.first?.id
+        }
+
+        rebuildAllStats()
+        persist()
+    }
+
+    private func rebuildAllStats() {
+        for index in snapshot.players.indices {
+            snapshot.players[index].vpipHands = 0
+            snapshot.players[index].pfrHands = 0
+            snapshot.players[index].threeBetHands = 0
+            snapshot.players[index].observedHands = 0
+        }
+        for player in snapshot.players {
+            rebuildStats(for: player.id)
+        }
     }
 
     private func rebuildStats(for playerID: UUID) {
         guard let index = snapshot.players.firstIndex(where: { $0.id == playerID }) else { return }
         let preflop = snapshot.observations.filter { $0.playerID == playerID && $0.street == .preflop }
-        let hands = Dictionary(grouping: preflop, by: \.handNumber)
+        let hands = Dictionary(grouping: preflop, by: { $0.handID?.uuidString ?? "legacy-\($0.handNumber)" })
 
         snapshot.players[index].observedHands = hands.count
         snapshot.players[index].vpipHands = hands.values.reduce(into: 0) { total, actions in

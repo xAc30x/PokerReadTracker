@@ -59,6 +59,7 @@ export const observations = sqliteTable(
       .notNull()
       .references(() => players.id, { onDelete: "cascade" }),
     phase: text("phase").notNull(),
+    street: text("street").notNull().default(""),
     action: text("action").notNull(),
     handId: text("hand_id").notNull().default(""),
     handNumber: integer("hand_number").notNull().default(0),
@@ -123,5 +124,36 @@ export const gameResults = sqliteTable(
       table.category,
       table.playedAt,
     ),
+  ],
+);
+
+export const mobilePairingCodes = sqliteTable(
+  "mobile_pairing_codes",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    ownerKey: text("owner_key").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("mobile_pairing_owner_idx").on(table.ownerKey),
+    index("mobile_pairing_expiry_idx").on(table.expiresAt),
+  ],
+);
+
+export const mobileSessions = sqliteTable(
+  "mobile_sessions",
+  {
+    id: text("id").primaryKey(),
+    ownerKey: text("owner_key").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    deviceName: text("device_name").notNull().default("iPhone"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    lastUsedAt: text("last_used_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    revokedAt: text("revoked_at"),
+  },
+  (table) => [
+    uniqueIndex("mobile_sessions_token_idx").on(table.tokenHash),
+    index("mobile_sessions_owner_idx").on(table.ownerKey, table.revokedAt),
   ],
 );
