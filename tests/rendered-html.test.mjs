@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 const distDir = fileURLToPath(new URL("../dist/", import.meta.url));
 const productTitle = "TableRead Poker Tracker";
 const productDescription = "Fast, durable player reads for live poker tables.";
-const textExtensions = new Set([".html", ".js", ".json", ".mjs", ".txt"]);
+const companionTitle = "TableRead Companion HUD";
+const textExtensions = new Set([".html", ".js", ".json", ".mjs", ".txt", ".webmanifest"]);
 
 async function readBuiltText(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -33,4 +34,12 @@ test("compiled app contains the TableRead product metadata", async () => {
 
   assert.match(builtText, new RegExp(productTitle, "i"));
   assert.match(builtText, new RegExp(productDescription, "i"));
+});
+
+test("compiled app includes the iOS companion HUD entry point", async () => {
+  const builtText = await readBuiltText(distDir);
+
+  assert.match(builtText, new RegExp(companionTitle, "i"));
+  assert.match(builtText, /\/hud/i);
+  assert.match(builtText, /standalone/i);
 });

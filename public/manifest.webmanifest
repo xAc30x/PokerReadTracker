@@ -1,0 +1,18 @@
+{
+  "name": "TableRead Companion HUD",
+  "short_name": "TableRead HUD",
+  "description": "Fast one-thumb poker player logging for iPhone.",
+  "start_url": "/hud",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07120f",
+  "theme_color": "#07120f",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

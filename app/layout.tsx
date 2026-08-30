@@ -7,6 +7,12 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://table-read-poker-tracker.xac30x.chatgpt.site"),
   title: "TableRead Poker Tracker",
   description: "Fast, durable player reads for live poker tables.",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "TableRead HUD",
+    statusBarStyle: "black-translucent",
+  },
   openGraph: {
     title: "TableRead Poker Tracker",
     description: "Fast player reads. One tap at a time.",
@@ -30,6 +36,7 @@ export const metadata: Metadata = {
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
+    apple: "/favicon.svg",
   },
 };
 
