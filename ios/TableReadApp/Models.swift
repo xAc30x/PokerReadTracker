@@ -80,7 +80,7 @@ struct Player: Codable, Identifiable, Equatable {
     }
 }
 
-struct Observation: Codable, Identifiable, Equatable {
+struct PokerObservation: Codable, Identifiable, Equatable {
     var id: UUID
     var playerID: UUID
     var street: Street
@@ -107,7 +107,7 @@ struct Observation: Codable, Identifiable, Equatable {
 
 struct AppSnapshot: Codable, Equatable {
     var players: [Player]
-    var observations: [Observation]
+    var observations: [PokerObservation]
     var selectedPlayerID: UUID?
     var sessionKind: SessionKind
     var currentStreet: Street
