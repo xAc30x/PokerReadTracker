@@ -21,7 +21,7 @@ targets:
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_TableReadAPIBaseURL: "$(TABLEREAD_API_BASE_URL)"
-        TABLEREAD_API_BASE_URL: "https://table-read-mobile-api.invalid"
+        TABLEREAD_API_BASE_URL: "https://table-read-mobile-api.tableread-poker-tracker.workers.dev"
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGNING_ALLOWED: NO
     scheme:

@@ -7,6 +7,7 @@ This Worker is the public API for the native iOS client. It exists because the C
 - Runtime: Cloudflare Workers
 - Database: dedicated Cloudflare D1 database named `table-read-mobile-api`
 - Worker name: `table-read-mobile-api`
+- Production API: `https://table-read-mobile-api.tableread-poker-tracker.workers.dev`
 - Native authentication: one-time pairing code -> revocable bearer token
 - Session-token storage on iOS: Keychain
 - Session-token storage on the server: SHA-256 hash only
@@ -35,7 +36,7 @@ The manual `Deploy Cloudflare Mobile API` workflow requires:
 - `CLOUDFLARE_ACCOUNT_ID` — the target Cloudflare account ID.
 - `TABLEREAD_PAIRING_ADMIN_SECRET` — a high-entropy secret used only to authorize creation of pairing codes. Use at least 32 random bytes. It is installed into the Worker as an encrypted secret and is never committed.
 
-The deployment workflow discovers an existing D1 database named `table-read-mobile-api` or creates it automatically, applies `migrations/`, deploys the Worker to `workers.dev`, and performs a production health check.
+The deployment workflow discovers an existing D1 database named `table-read-mobile-api` or creates it automatically, registers a `workers.dev` account subdomain if required, applies `migrations/`, installs the pairing secret, deploys the Worker, verifies `/health`, and runs a no-poker-data authentication smoke test covering pairing, exchange, authenticated sync, revocation, and rejection of the revoked token.
 
 ## Local/CI validation
 
@@ -46,7 +47,7 @@ npm run install:ci
 npm run mobile-api:check
 ```
 
-`mobile-api:check` runs a Wrangler dry-run compile using `wrangler.check.jsonc`. The database UUID in that file is deliberately non-production and is used only to validate the Worker bundle.
+`mobile-api:check` runs a Wrangler dry-run compile using `wrangler.check.jsonc`. The database UUID in that file is deliberately non-production and is used only to validate the Worker bundle. Preview URLs are disabled in both validation and production configuration; the public production Worker remains available through its explicit `workers.dev` route.
 
 ## iOS configuration
 
@@ -56,25 +57,28 @@ The XcodeGen project exposes the build setting:
 TABLEREAD_API_BASE_URL
 ```
 
-It is written into `TableReadAPIBaseURL` in the generated Info.plist. The repository default is the reserved host:
+It is written into `TableReadAPIBaseURL` in the generated Info.plist. The production repository default is:
 
 ```text
-https://table-read-mobile-api.invalid
+https://table-read-mobile-api.tableread-poker-tracker.workers.dev
 ```
 
-This is intentional. Native networking fails closed until the deployed Worker URL is explicitly configured. After deployment, set the build setting to the exact `https://table-read-mobile-api.<account-subdomain>.workers.dev` URL or a production custom domain.
+The `SyncController` still rejects reserved `.invalid` hosts if a downstream build intentionally overrides the setting with an undeployed endpoint.
 
 ## Production verification
 
-A release is not considered network-verified until all of these succeed against the deployed Worker:
+The automated production deployment verifies the network/auth foundation without creating player or hand records:
 
-1. `GET /health` returns `{ "ok": true }`.
-2. Pairing administration creates a fresh 10-minute code.
-3. The iPhone exchanges the code for a bearer token and stores it in Keychain.
-4. `POST /api/mobile/sync` succeeds with that bearer token.
-5. A test player/action created on the phone survives app restart and a second sync.
-6. A synced observation can be undone offline and is deleted remotely after reconnect.
-7. Revoking/unpairing the device causes the old bearer token to return HTTP 401.
+1. `GET /health` returns the TableRead health response.
+2. An invalid pairing code is rejected by the application route with HTTP 401 JSON.
+3. An invalid bearer token is rejected by the sync route with HTTP 401 JSON.
+4. Pairing administration creates a fresh single-use code.
+5. The code exchanges for a bearer token.
+6. An authenticated `GET /api/mobile/sync` returns a canonical snapshot.
+7. The session revokes successfully.
+8. The revoked bearer token is rejected with HTTP 401.
+
+Physical-device release verification still requires an installed signed iOS build. On the iPhone, verify that pairing stores the token in Keychain, a local player/action survives restart and sync, an offline undo deletes remotely after reconnect, and unpairing prevents the old session from syncing again.
 
 ## Security notes
 
