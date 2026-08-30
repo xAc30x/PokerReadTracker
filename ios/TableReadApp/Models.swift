@@ -86,6 +86,7 @@ struct PokerObservation: Codable, Identifiable, Equatable {
     var street: Street
     var action: String
     var handNumber: Int
+    var handID: UUID?
     var createdAt: Date
 
     init(
@@ -94,6 +95,7 @@ struct PokerObservation: Codable, Identifiable, Equatable {
         street: Street,
         action: String,
         handNumber: Int,
+        handID: UUID? = nil,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -101,6 +103,7 @@ struct PokerObservation: Codable, Identifiable, Equatable {
         self.street = street
         self.action = action
         self.handNumber = handNumber
+        self.handID = handID
         self.createdAt = createdAt
     }
 }
@@ -113,6 +116,8 @@ struct AppSnapshot: Codable, Equatable {
     var currentStreet: Street
     var handNumber: Int
     var gameMode: Bool
+    var currentHandID: UUID?
+    var pendingUndoIDs: [UUID]?
 
     static let empty = AppSnapshot(
         players: [],
@@ -121,6 +126,8 @@ struct AppSnapshot: Codable, Equatable {
         sessionKind: .cash,
         currentStreet: .preflop,
         handNumber: 1,
-        gameMode: false
+        gameMode: false,
+        currentHandID: UUID(),
+        pendingUndoIDs: []
     )
 }
