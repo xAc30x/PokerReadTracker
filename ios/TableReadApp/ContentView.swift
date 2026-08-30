@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @Bindable var store: TrackerStore
+    @ObservedObject var store: TrackerStore
     @State private var newPlayerName = ""
 
     private let preflopActions = ["Fold", "Limp", "Call", "Open", "3-Bet", "4-Bet+", "Squeeze", "All-In"]
@@ -56,7 +56,7 @@ struct ContentView: View {
         VStack(spacing: 10) {
             Picker("Session", selection: Binding(
                 get: { store.snapshot.sessionKind },
-                set: store.setSessionKind
+                set: { store.setSessionKind($0) }
             )) {
                 ForEach(SessionKind.allCases) { kind in
                     Text(kind.title).tag(kind)
@@ -184,7 +184,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             Picker("Street", selection: Binding(
                 get: { store.snapshot.currentStreet },
-                set: store.setStreet
+                set: { store.setStreet($0) }
             )) {
                 ForEach([Street.preflop, .flop, .turn, .river]) { street in
                     Text(street.title).tag(street)
@@ -227,7 +227,7 @@ struct ContentView: View {
             Text("Add your first player").font(.headline)
             TextField("Player name", text: $newPlayerName)
                 .textFieldStyle(.roundedBorder)
-                .textInputAutocapitalization(.words)
+                .textInputAutapitalization(.words)
             Button("Add Player") {
                 store.addPlayer(name: newPlayerName)
                 newPlayerName = ""
