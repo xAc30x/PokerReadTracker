@@ -82,7 +82,9 @@ final class TrackerStore {
             handNumber: snapshot.handNumber
         )
         snapshot.observations.append(observation)
-        updateStats(for: playerID, street: effectiveStreet, action: action)
+        if effectiveStreet == .preflop {
+            rebuildStats(for: playerID)
+        }
         persist()
     }
 
@@ -100,34 +102,23 @@ final class TrackerStore {
         persist()
     }
 
-    private func updateStats(for playerID: UUID, street: Street, action: String) {
-        guard street == .preflop,
-              let index = snapshot.players.firstIndex(where: { $0.id == playerID }) else { return }
-        snapshot.players[index].observedHands += 1
-        if action != "Fold" { snapshot.players[index].vpipHands += 1 }
-        if ["Open", "3-Bet", "4-Bet+", "All-In", "Squeeze"].contains(action) {
-            snapshot.players[index].pfrHands += 1
-        }
-        if action == "3-Bet" || action == "Squeeze" {
-            snapshot.players[index].threeBetHands += 1
-        }
-    }
-
     private func rebuildStats(for playerID: UUID) {
         guard let index = snapshot.players.firstIndex(where: { $0.id == playerID }) else { return }
-        snapshot.players[index].vpipHands = 0
-        snapshot.players[index].pfrHands = 0
-        snapshot.players[index].threeBetHands = 0
-        snapshot.players[index].observedHands = 0
-        let relevant = snapshot.observations.filter { $0.playerID == playerID && $0.street == .preflop }
-        for item in relevant {
-            snapshot.players[index].observedHands += 1
-            if item.action != "Fold" { snapshot.players[index].vpipHands += 1 }
-            if ["Open", "3-Bet", "4-Bet+", "All-In", "Squeeze"].contains(item.action) {
-                snapshot.players[index].pfrHands += 1
+        let preflop = snapshot.observations.filter { $0.playerID == playerID && $0.street == .preflop }
+        let hands = Dictionary(grouping: preflop, by: \.handNumber)
+
+        snapshot.players[index].observedHands = hands.count
+        snapshot.players[index].vpipHands = hands.values.reduce(into: 0) { total, actions in
+            if actions.contains(where: { $0.action != "Fold" }) { total += 1 }
+        }
+        snapshot.players[index].pfrHands = hands.values.reduce(into: 0) { total, actions in
+            if actions.contains(where: { ["Open", "3-Bet", "4-Bet+", "All-In", "Squeeze"].contains($0.action) }) {
+                total += 1
             }
-            if item.action == "3-Bet" || item.action == "Squeeze" {
-                snapshot.players[index].threeBetHands += 1
+        }
+        snapshot.players[index].threeBetHands = hands.values.reduce(into: 0) { total, actions in
+            if actions.contains(where: { $0.action == "3-Bet" || $0.action == "Squeeze" }) {
+                total += 1
             }
         }
     }
