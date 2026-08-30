@@ -1,8 +1,9 @@
 import SwiftUI
 
 @main
+@MainActor
 struct TableReadApp: App {
-    @State private var store = TrackerStore()
+    @StateObject private var store = TrackerStore()
 
     var body: some Scene {
         WindowGroup {
