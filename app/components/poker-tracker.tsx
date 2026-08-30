@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   PLAY_STYLES,
+  type ObservationPhase,
   type Player,
   type PlayerPatch,
   type PlayStyle,
@@ -10,13 +11,14 @@ import {
   type TrackerMutation,
   type TrackerState,
 } from "../tracker-types";
-import { GameResults } from "./game-results";
 
 const EMPTY_STATE: TrackerState = {
   players: [],
   seats: [],
   counts: {},
-  table: { positionOffset: 0, handNumber: 1, tableSize: 6 },
+  hudStats: {},
+  recentHands: [],
+  table: { positionOffset: 0, handNumber: 1, tableSize: 6, currentHandId: "" },
 };
 const CACHE_KEY = "tableread.state.v1";
 const QUEUE_KEY = "tableread.pending.v1";
@@ -76,7 +78,6 @@ const POSTFLOP_TAGS = [
   "Folds to pressure",
 ];
 
-type ObservationPhase = "preflop" | "postflop" | "showdown";
 type SaveStatus = "loading" | "saved" | "saving" | "queued" | "error";
 type PanelTab = "quick" | "profile";
 type ActionDefinition = {
@@ -117,6 +118,9 @@ const SHOWDOWN_ACTIONS: ActionDefinition[] = [
   { phase: "showdown", action: "hero-call-shown", label: "Hero / Light Call", glyph: "HC" },
   { phase: "showdown", action: "mucked-unknown", label: "Mucked / Unknown", glyph: "?" },
 ];
+const ACTION_LABELS = new Map(
+  [...PREFLOP_ACTIONS, ...POSTFLOP_ACTIONS, ...SHOWDOWN_ACTIONS].map((item) => [item.action, item.label]),
+);
 
 function LogoMark() {
   return (
@@ -176,10 +180,14 @@ function normalizeState(state: TrackerState): TrackerState {
   return {
     ...state,
     seats: (state.seats ?? []).filter((seat) => seat.seatNo <= tableSize),
+    counts: state.counts ?? {},
+    hudStats: state.hudStats ?? {},
+    recentHands: state.recentHands ?? [],
     table: {
       positionOffset: currentTable.positionOffset ?? 0,
       handNumber: currentTable.handNumber ?? 1,
       tableSize,
+      currentHandId: currentTable.currentHandId ?? "",
     },
   };
 }
@@ -279,7 +287,9 @@ function applyOptimistic(state: TrackerState, mutation: TrackerMutation): Tracke
         table: {
           ...state.table,
           positionOffset: 0,
+          handNumber: 1,
           tableSize: mutation.tableSize,
+          currentHandId: mutation.handId ?? state.table.currentHandId,
         },
       };
     case "advanceHand":
@@ -290,13 +300,19 @@ function applyOptimistic(state: TrackerState, mutation: TrackerMutation): Tracke
           positionOffset:
             (state.table.positionOffset + 1) % state.table.tableSize,
           handNumber: state.table.handNumber + 1,
+          currentHandId: mutation.id,
         },
       };
     case "clearSeats":
       return {
         ...state,
         seats: [],
-        table: { ...state.table, positionOffset: 0, handNumber: 1 },
+        table: {
+          ...state.table,
+          positionOffset: 0,
+          handNumber: 1,
+          currentHandId: mutation.handId ?? state.table.currentHandId,
+        },
       };
     case "addObservation":
       return updateCount(state, mutation.playerId, mutation.phase, mutation.action, 1);
@@ -312,12 +328,20 @@ function applyOptimistic(state: TrackerState, mutation: TrackerMutation): Tracke
         counts: Object.fromEntries(
           Object.entries(state.counts).filter(([playerId]) => playerId !== mutation.playerId),
         ),
+        hudStats: Object.fromEntries(
+          Object.entries(state.hudStats).filter(([playerId]) => playerId !== mutation.playerId),
+        ),
       };
   }
 }
 
 function sumCounts(values: Record<string, number> | undefined) {
   return Object.values(values ?? {}).reduce((sum, value) => sum + value, 0);
+}
+
+function hudValue(value: number | null | undefined) {
+  if (value === null || value === undefined) return "—";
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 export function PokerTracker() {
@@ -448,14 +472,25 @@ export function PokerTracker() {
       persistQueue();
       setStatus(defer ? "queued" : "saving");
 
+      const shouldRefresh = [
+        "addObservation",
+        "undoObservation",
+        "advanceHand",
+        "setTableSize",
+        "clearSeats",
+      ].includes(mutation.type);
+
       if (flushTimerRef.current !== null) window.clearTimeout(flushTimerRef.current);
       if (defer) {
         flushTimerRef.current = window.setTimeout(() => void flushQueue(), 650);
       } else {
-        void flushQueue();
+        void (async () => {
+          const synced = await flushQueue();
+          if (synced && shouldRefresh) await loadState();
+        })();
       }
     },
-    [changeData, flushQueue, persistQueue],
+    [changeData, flushQueue, loadState, persistQueue],
   );
 
   useEffect(() => {
@@ -513,6 +548,15 @@ export function PokerTracker() {
   }, [data.players, search, seatedIds]);
 
   const selectedCounts = selectedPlayer ? data.counts[selectedPlayer.id] ?? {} : {};
+  const selectedHud = selectedPlayer ? data.hudStats[selectedPlayer.id] : undefined;
+  const selectedRecentHands = useMemo(
+    () => selectedPlayer
+      ? data.recentHands
+          .filter((hand) => hand.observations.some((item) => item.playerId === selectedPlayer.id))
+          .slice(0, 6)
+      : [],
+    [data.recentHands, selectedPlayer],
+  );
   const preflopTotal = sumCounts(selectedCounts.preflop);
   const postflopTotal = sumCounts(selectedCounts.postflop);
   const bluffShown = selectedCounts.showdown?.["bluff-shown"] ?? 0;
@@ -521,6 +565,7 @@ export function PokerTracker() {
   const revealedBluffRate = showdownTotal
     ? `${Math.round((bluffShown / showdownTotal) * 100)}%`
     : "—";
+  const tableSample = Math.max(0, ...Object.values(data.hudStats).map((stats) => stats.sampleHands));
 
   function openPlayer(playerId: string) {
     setSelectedId(playerId);
@@ -568,7 +613,7 @@ export function PokerTracker() {
   function changeTableSize(tableSize: TableSize) {
     if (tableSize === data.table.tableSize) return;
     setAddDestination(null);
-    enqueueMutation({ type: "setTableSize", tableSize });
+    enqueueMutation({ type: "setTableSize", tableSize, handId: crypto.randomUUID() });
   }
 
   function updatePlayer(patch: PlayerPatch, defer = false) {
@@ -594,6 +639,10 @@ export function PokerTracker() {
       playerId: selectedPlayer.id,
       phase: definition.phase,
       action: definition.action,
+      handId: data.table.currentHandId || undefined,
+      handNumber: data.table.handNumber,
+      seatNo: selectedSeat,
+      position: selectedPosition?.short,
     });
     setLastLog({ ...definition, id, playerId: selectedPlayer.id, playerName: selectedPlayer.name });
     if ("vibrate" in navigator) navigator.vibrate(12);
@@ -669,13 +718,13 @@ export function PokerTracker() {
         <button
           className={`save-status save-status--${status}`}
           type="button"
-          onClick={() => void flushQueue()}
+          onClick={() => void flushQueue().then((synced) => synced && loadState())}
           aria-label={status === "queued" ? "Retry syncing saved changes" : "Save status"}
         >
           <span />
           {status === "loading" && "Loading"}
           {status === "saving" && "Syncing"}
-          {status === "saved" && "All saved"}
+          {status === "saved" && "Live"}
           {status === "queued" && "Waiting to sync"}
           {status === "error" && "Tap to retry"}
         </button>
@@ -706,12 +755,18 @@ export function PokerTracker() {
                 <button
                   className="text-button"
                   type="button"
-                  onClick={() => enqueueMutation({ type: "clearSeats" })}
+                  onClick={() => enqueueMutation({ type: "clearSeats", handId: crypto.randomUUID() })}
                 >
                   Clear seats
                 </button>
               )}
             </div>
+          </div>
+
+          <div className="live-session-strip" aria-label="Current hand summary">
+            <div><span>Hand</span><strong>#{data.table.handNumber}</strong></div>
+            <div><span>Dealer</span><strong>BTN</strong><small>Next: SB</small></div>
+            <div><span>Sample</span><strong>{tableSample}</strong><small>max observed hands</small></div>
           </div>
 
           <div className={`table-wrap table-wrap--${data.table.tableSize}`}>
@@ -725,8 +780,8 @@ export function PokerTracker() {
               >
                 <span className="dealer-chip" aria-hidden="true">D</span>
                 <span className="next-hand-copy">
-                  <strong>Next hand</strong>
-                  <small>Move positions once</small>
+                  <strong>Move dealer</strong>
+                  <small>Start next hand</small>
                 </span>
               </button>
               <span className="table-seated">
@@ -743,6 +798,7 @@ export function PokerTracker() {
               const playerId = seatsByNumber.get(seatNo);
               const player = playerId ? playersById.get(playerId) : undefined;
               const isSelected = player?.id === selectedId;
+              const hud = player ? data.hudStats[player.id] : undefined;
               return (
                 <button
                   className={`seat seat--${seatNo}${isSelected ? " seat--selected" : ""}`}
@@ -766,10 +822,19 @@ export function PokerTracker() {
                   </span>
                   {player ? (
                     <>
-                      <span className="avatar">{playerInitials(player.name)}</span>
-                      <span className="seat-copy">
+                      <span className="avatar seat-avatar">{playerInitials(player.name)}</span>
+                      <span className="seat-copy seat-copy--hud">
                         <strong>{player.name}</strong>
-                        <small>{position.short} · {STYLE_LABELS[player.playStyle]}</small>
+                        {hud?.sampleHands ? (
+                          <>
+                            <span className="seat-hud-line" title="Observed VPIP / PFR / 3-bet">
+                              <b>{hudValue(hud.vpipPct)}</b><i>/</i><b>{hudValue(hud.pfrPct)}</b><i>/</i><b>{hudValue(hud.threeBetPct)}</b>
+                            </span>
+                            <small>{hud.sampleHands} hands · VPIP / PFR / 3B</small>
+                          </>
+                        ) : (
+                          <small>{position.short} · {STYLE_LABELS[player.playStyle]} · no hand sample yet</small>
+                        )}
                       </span>
                     </>
                   ) : (
@@ -835,15 +900,53 @@ export function PokerTracker() {
 
               {panelTab === "quick" ? (
                 <div className="quick-panel" role="tabpanel">
-                  <div className="stat-strip">
-                    <div><strong>{preflopTotal}</strong><span>Pre-flop reads</span></div>
-                    <div><strong>{postflopTotal}</strong><span>Post-flop reads</span></div>
-                    <div><strong>{revealedBluffRate}</strong><span>Shown bluffs · n={showdownTotal}</span></div>
+                  <div className="hud-stat-strip" aria-label="Observed poker HUD statistics">
+                    <div><strong>{hudValue(selectedHud?.vpipPct)}</strong><span>VPIP</span><small>n={selectedHud?.sampleHands ?? 0}</small></div>
+                    <div><strong>{hudValue(selectedHud?.pfrPct)}</strong><span>PFR</span><small>n={selectedHud?.sampleHands ?? 0}</small></div>
+                    <div><strong>{hudValue(selectedHud?.threeBetPct)}</strong><span>3-Bet</span><small>n={selectedHud?.threeBetOpportunities ?? 0} known opps</small></div>
                   </div>
+                  <p className="hud-stat-note">HUD percentages use hand-linked observations only. Legacy aggregate reads stay available below but do not enter these denominators.</p>
                   {renderActionGroup("Pre-Flop", "one tap per observed action", PREFLOP_ACTIONS)}
                   {renderActionGroup("Post-Flop", "log the defining action", POSTFLOP_ACTIONS)}
                   {renderActionGroup("Showdown Evidence", "kept separate from action stats", SHOWDOWN_ACTIONS)}
-                  <p className="quick-tip">Counts are direct observations. Showdown evidence is stored separately and never counted as ordinary post-flop action.</p>
+
+                  <section className="hand-timeline" aria-labelledby="hand-timeline-heading">
+                    <div className="panel-label-row">
+                      <h3 id="hand-timeline-heading">Recent hand evidence</h3>
+                      <span>sample-aware history</span>
+                    </div>
+                    {selectedRecentHands.length ? (
+                      <div className="hand-timeline-list">
+                        {selectedRecentHands.map((hand) => {
+                          const observations = hand.observations.filter((item) => item.playerId === selectedPlayer.id);
+                          return (
+                            <article key={hand.id} className="hand-timeline-item">
+                              <div className="hand-timeline-head">
+                                <strong>Hand #{hand.handNumber}</strong>
+                                <span>{observations[0]?.position || "—"}</span>
+                              </div>
+                              <div className="hand-evidence-chips">
+                                {observations.map((item) => (
+                                  <span key={item.id} data-phase={item.phase}>
+                                    {item.phase === "preflop" ? "PF" : item.phase === "postflop" ? "POST" : "SD"} · {ACTION_LABELS.get(item.action) ?? item.action}
+                                  </span>
+                                ))}
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="timeline-empty">New actions will appear here grouped by hand after they sync.</p>
+                    )}
+                  </section>
+
+                  <div className="legacy-read-summary">
+                    <span>{preflopTotal} pre-flop reads</span>
+                    <span>{postflopTotal} post-flop reads</span>
+                    <span>{revealedBluffRate} shown bluffs · n={showdownTotal}</span>
+                  </div>
+                  <p className="quick-tip">Counts are direct observations. Showdown evidence remains separate from ordinary post-flop action, and only hand-linked evidence contributes to HUD percentages.</p>
                 </div>
               ) : (
                 <div className="profile-panel" role="tabpanel">
@@ -1016,12 +1119,15 @@ export function PokerTracker() {
           <div className="roster-list">
             {data.players.map((player) => {
               const evidence = sumCounts(data.counts[player.id]?.preflop) + sumCounts(data.counts[player.id]?.postflop);
+              const hud = data.hudStats[player.id];
               return (
                 <button key={player.id} type="button" onClick={() => openPlayer(player.id)}>
                   <span className="avatar">{playerInitials(player.name)}</span>
                   <span className="roster-copy">
                     <strong>{player.name}</strong>
-                    <small>{seatedIds.has(player.id) ? "At table" : STYLE_LABELS[player.playStyle]} · {evidence} reads</small>
+                    <small>
+                      {seatedIds.has(player.id) ? "At table" : STYLE_LABELS[player.playStyle]} · {hud?.sampleHands ?? 0} hands · {evidence} reads
+                    </small>
                   </span>
                 </button>
               );
@@ -1029,8 +1135,6 @@ export function PokerTracker() {
           </div>
         )}
       </section>
-
-      <GameResults />
 
       {addDestination !== null && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setAddDestination(null)}>
