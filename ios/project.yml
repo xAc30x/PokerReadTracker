@@ -7,6 +7,9 @@ settings:
   base:
     SWIFT_VERSION: 6.0
     IPHONEOS_DEPLOYMENT_TARGET: 17.0
+    MARKETING_VERSION: 1.0.0
+    CURRENT_PROJECT_VERSION: 1
+    TABLE_READ_BUNDLE_ID: com.tableread.pokertracker
 targets:
   TableReadApp:
     type: application
@@ -15,15 +18,20 @@ targets:
       - TableReadApp
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.tableread.pokertracker
+        PRODUCT_BUNDLE_IDENTIFIER: "$(TABLE_READ_BUNDLE_ID)"
         GENERATE_INFOPLIST_FILE: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         INFOPLIST_KEY_CFBundleDisplayName: TableRead
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_TableReadAPIBaseURL: "$(TABLEREAD_API_BASE_URL)"
         TABLEREAD_API_BASE_URL: "https://table-read-mobile-api.tableread-poker-tracker.workers.dev"
         TARGETED_DEVICE_FAMILY: "1"
-        CODE_SIGNING_ALLOWED: NO
+        SUPPORTS_MACCATALYST: NO
+        CODE_SIGN_STYLE: Automatic
     scheme:
       testTargets:
         - TableReadAppTests
@@ -37,4 +45,3 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        CODE_SIGNING_ALLOWED: NO

@@ -1,6 +1,5 @@
 import Combine
 import Foundation
-import UIKit
 
 @MainActor
 final class SyncController: ObservableObject {
@@ -41,7 +40,7 @@ final class SyncController: ObservableObject {
         status = "Pairing…"
 
         do {
-            let payload = PairRequest(code: code, deviceName: UIDevice.current.name)
+            let payload = PairRequest(code: code, deviceName: "iPhone")
             let body = try encoder.encode(payload)
             let responseData = try await request(path: "/api/mobile/exchange", method: "POST", body: body, token: nil)
             let response = try decoder.decode(PairResponse.self, from: responseData)

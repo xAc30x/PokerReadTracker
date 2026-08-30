@@ -6,11 +6,13 @@ on:
     paths:
       - "ios/**"
       - ".github/workflows/ios-validation.yml"
+      - ".github/workflows/testflight-release.yml"
   pull_request:
     branches: [main]
     paths:
       - "ios/**"
       - ".github/workflows/ios-validation.yml"
+      - ".github/workflows/testflight-release.yml"
   workflow_dispatch:
 
 jobs:
@@ -28,6 +30,20 @@ jobs:
         working-directory: ios
         run: xcodegen generate
 
+      - name: Validate release configuration
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          bash -n scripts/release-testflight.sh
+          plutil -lint TableReadApp/PrivacyInfo.xcprivacy
+          altool_help="$(xcrun altool --help 2>&1)"
+          grep -q -- '--apiKey' <<< "$altool_help"
+          grep -q -- '--apiIssuer' <<< "$altool_help"
+          grep -q -- 'API_PRIVATE_KEYS_DIR' <<< "$altool_help"
+          test "$(sips -g pixelWidth TableReadApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png | awk '/pixelWidth/ {print $2}')" = '1024'
+          test "$(sips -g pixelHeight TableReadApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png | awk '/pixelHeight/ {print $2}')" = '1024'
+          test "$(sips -g hasAlpha TableReadApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png | awk '/hasAlpha/ {print $2}')" = 'no'
+
       - name: Build app and tests
         working-directory: ios
         run: |
@@ -38,3 +54,15 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO \
             build-for-testing
+
+      - name: Build unsigned Release app
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project TableReadApp.xcodeproj \
+            -scheme TableReadApp \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            build

@@ -1,0 +1,77 @@
+name: TestFlight Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      marketing_version:
+        description: App version shown to testers
+        required: true
+        default: "1.0.0"
+        type: string
+      upload_to_testflight:
+        description: Validate and upload the signed IPA to App Store Connect
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tableread-testflight-production
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Archive and distribute
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: macos-15
+    timeout-minutes: 45
+    environment: testflight
+    env:
+      MARKETING_VERSION: ${{ inputs.marketing_version }}
+      BUILD_NUMBER: ${{ github.run_number }}.${{ github.run_attempt }}
+      UPLOAD_TO_TESTFLIGHT: ${{ inputs.upload_to_testflight }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Archive, validate, and distribute
+        id: release
+        env:
+          APPLE_DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64 }}
+        run: ./ios/scripts/release-testflight.sh
+
+      - name: Preserve signed release artifact
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: TableRead-${{ steps.release.outputs.marketing_version }}-${{ steps.release.outputs.build_number }}
+          path: ${{ steps.release.outputs.ipa_path }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Release summary
+        if: ${{ success() }}
+        env:
+          BUNDLE_ID: ${{ steps.release.outputs.bundle_id }}
+          VERSION: ${{ steps.release.outputs.marketing_version }}
+          BUILD: ${{ steps.release.outputs.build_number }}
+          UPLOADED: ${{ steps.release.outputs.uploaded }}
+        run: |
+          {
+            echo '## TableRead iOS release'
+            echo
+            echo "- Bundle ID: \`$BUNDLE_ID\`"
+            echo "- Version: \`$VERSION ($BUILD)\`"
+            echo "- Uploaded to App Store Connect: \`$UPLOADED\`"
+            echo '- Signed IPA artifact retention: 14 days'
+          } >> "$GITHUB_STEP_SUMMARY"
