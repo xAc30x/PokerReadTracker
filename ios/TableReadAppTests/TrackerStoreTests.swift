@@ -4,15 +4,10 @@ import XCTest
 @MainActor
 final class TrackerStoreTests: XCTestCase {
     private func makeStore() throws -> TrackerStore {
-        let manager = FileManager.default
-        let directory = manager.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try manager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let suiteName = "TableReadTests-\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            throw NSError(domain: "TableReadTests", code: 1)
-        }
-        defaults.removePersistentDomain(forName: suiteName)
-        return TrackerStore(fileManager: TestFileManager(applicationSupportURL: directory))
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return TrackerStore(persistenceURL: directory.appendingPathComponent("tracker.json"))
     }
 
     func testAddingPlayerSelectsIt() throws {
@@ -49,21 +44,5 @@ final class TrackerStoreTests: XCTestCase {
         store.undoLastObservation()
         XCTAssertEqual(store.selectedPlayer?.observedHands, 0)
         XCTAssertEqual(store.selectedPlayer?.pfrHands, 0)
-    }
-}
-
-private final class TestFileManager: FileManager {
-    private let applicationSupportURL: URL
-
-    init(applicationSupportURL: URL) {
-        self.applicationSupportURL = applicationSupportURL
-        super.init()
-    }
-
-    override func urls(for directory: SearchPathDirectory, in domainMask: SearchPathDomainMask) -> [URL] {
-        if directory == .applicationSupportDirectory {
-            return [applicationSupportURL]
-        }
-        return super.urls(for: directory, in: domainMask)
     }
 }
