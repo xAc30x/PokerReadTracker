@@ -33,7 +33,6 @@ final class SyncController: ObservableObject {
         isSyncing = true
         errorMessage = nil
         status = "Pairing…"
-        defer { isSyncing = false }
 
         do {
             let payload = PairRequest(code: code, deviceName: UIDevice.current.name)
@@ -43,8 +42,10 @@ final class SyncController: ObservableObject {
             try KeychainStore.saveToken(response.token)
             isPaired = true
             status = "Paired"
+            isSyncing = false
             await sync(store: store)
         } catch {
+            isSyncing = false
             isPaired = KeychainStore.loadToken() != nil
             status = "Pairing failed"
             errorMessage = error.localizedDescription
