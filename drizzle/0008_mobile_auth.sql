@@ -1,3 +1,5 @@
+ALTER TABLE `observations` ADD `street` text NOT NULL DEFAULT '';
+--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS `mobile_pairing_codes` (
   `code_hash` text PRIMARY KEY NOT NULL,
   `owner_key` text NOT NULL,
