@@ -32,7 +32,9 @@ export async function createPairingCode(ownerKey: string) {
 
   await d1.batch([
     d1
-      .prepare("DELETE FROM mobile_pairing_codes WHERE owner_key = ? OR expires_at <= CURRENT_TIMESTAMP")
+      .prepare(
+        "DELETE FROM mobile_pairing_codes WHERE owner_key = ? OR julianday(expires_at) <= julianday('now')",
+      )
       .bind(ownerKey),
     d1
       .prepare(
@@ -52,33 +54,30 @@ export async function exchangePairingCode(code: string, deviceName: string) {
 
   const codeHash = await sha256(normalized);
   const d1 = getD1();
-  const row = await d1
+  const consumed = await d1
     .prepare(
-      `SELECT owner_key
-       FROM mobile_pairing_codes
-       WHERE code_hash = ? AND expires_at > CURRENT_TIMESTAMP
-       LIMIT 1`,
+      `DELETE FROM mobile_pairing_codes
+       WHERE code_hash = ? AND julianday(expires_at) > julianday('now')
+       RETURNING owner_key`,
     )
     .bind(codeHash)
     .first<{ owner_key: string }>();
 
-  if (!row?.owner_key) return null;
+  if (!consumed?.owner_key) return null;
 
   const token = randomToken();
   const tokenHash = await sha256(token);
   const sessionId = crypto.randomUUID();
   const cleanDeviceName = deviceName.trim().slice(0, 80) || "iPhone";
 
-  await d1.batch([
-    d1.prepare("DELETE FROM mobile_pairing_codes WHERE code_hash = ?").bind(codeHash),
-    d1
-      .prepare(
-        `INSERT INTO mobile_sessions
-         (id, owner_key, token_hash, device_name, created_at, last_used_at, revoked_at)
-         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL)`,
-      )
-      .bind(sessionId, row.owner_key, tokenHash, cleanDeviceName),
-  ]);
+  await d1
+    .prepare(
+      `INSERT INTO mobile_sessions
+       (id, owner_key, token_hash, device_name, created_at, last_used_at, revoked_at)
+       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL)`,
+    )
+    .bind(sessionId, consumed.owner_key, tokenHash, cleanDeviceName)
+    .run();
 
   return { token, sessionId };
 }
