@@ -43,3 +43,16 @@ test("compiled app includes the iOS companion HUD entry point", async () => {
   assert.match(builtText, /\/hud/i);
   assert.match(builtText, /standalone/i);
 });
+
+test("compiled iOS HUD includes Phase 2 mobile controls", async () => {
+  const builtText = await readBuiltText(distDir);
+
+  assert.match(builtText, /Game mode/i);
+  assert.match(builtText, /Fast player switcher/i);
+  assert.match(builtText, /flop/i);
+  assert.match(builtText, /turn/i);
+  assert.match(builtText, /river/i);
+  assert.match(builtText, /Session note/i);
+  assert.match(builtText, /Wallet/i);
+  assert.match(builtText, /Offline queue/i);
+});
