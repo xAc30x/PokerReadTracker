@@ -1,21 +1,29 @@
+import Combine
 import Foundation
-import Observation
 
 @MainActor
-@Observable
-final class TrackerStore {
-    private(set) var snapshot: AppSnapshot
-    var persistenceError: String?
+final class TrackerStore: ObservableObject {
+    @Published private(set) var snapshot: AppSnapshot
+    @Published var persistenceError: String?
 
     private let fileURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    init(fileManager: FileManager = .default) {
-        let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let directory = base.appendingPathComponent("TableRead", isDirectory: true)
-        try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        self.fileURL = directory.appendingPathComponent("tracker.json")
+    init(persistenceURL: URL? = nil, fileManager: FileManager = .default) {
+        if let persistenceURL {
+            self.fileURL = persistenceURL
+            try? fileManager.createDirectory(
+                at: persistenceURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        } else {
+            let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            let directory = base.appendingPathComponent("TableRead", isDirectory: true)
+            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            self.fileURL = directory.appendingPathComponent("tracker.json")
+        }
+
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
