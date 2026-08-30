@@ -44,6 +44,42 @@ jobs:
             fi
           done
 
+      - name: Ensure workers.dev account subdomain
+        id: workers_subdomain
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain"
+          auth=(--header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --header 'Content-Type: application/json')
+
+          current_json="$(curl --silent --show-error "${auth[@]}" "$api" || true)"
+          subdomain="$(jq -r '.result.subdomain // empty' <<<"$current_json" 2>/dev/null || true)"
+
+          if [[ -z "$subdomain" ]]; then
+            echo "No workers.dev account subdomain exists; registering one."
+            last_response=''
+            for candidate in tableread-poker-tracker tableread-poker tableread-mobile-api; do
+              echo "Trying workers.dev subdomain: $candidate"
+              last_response="$(curl --silent --show-error --request PUT "${auth[@]}" \
+                --data "$(jq -nc --arg subdomain "$candidate" '{subdomain:$subdomain}')" \
+                "$api" || true)"
+              if jq -e '.success == true' >/dev/null 2>&1 <<<"$last_response"; then
+                subdomain="$(jq -r '.result.subdomain // empty' <<<"$last_response")"
+                break
+              fi
+            done
+
+            if [[ -z "$subdomain" ]]; then
+              echo "::error::Unable to register a workers.dev account subdomain."
+              jq -r '.errors[]?.message // empty' <<<"$last_response" || true
+              exit 6
+            fi
+          else
+            echo "Using existing workers.dev account subdomain: $subdomain"
+          fi
+
+          echo "subdomain=$subdomain" >> "$GITHUB_OUTPUT"
+
       - name: Discover or create D1 database
         id: d1
         shell: bash
@@ -87,6 +123,7 @@ jobs:
               main:"src/index.ts",
               compatibility_date:"2026-08-30",
               workers_dev:true,
+              preview_urls:false,
               d1_databases:[{
                 binding:"DB",
                 database_name:$databaseName,
@@ -115,17 +152,15 @@ jobs:
       - name: Resolve public workers.dev URL
         id: public_url
         shell: bash
+        env:
+          ACCOUNT_SUBDOMAIN: ${{ steps.workers_subdomain.outputs.subdomain }}
         run: |
           set -euo pipefail
-          subdomain_json="$(curl --fail --silent --show-error \
-            --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain")"
-          subdomain="$(jq -r '.result.subdomain // empty' <<<"$subdomain_json")"
-          if [[ -z "$subdomain" ]]; then
-            echo "::error::Cloudflare Workers subdomain is not enabled for this account."
+          if [[ -z "$ACCOUNT_SUBDOMAIN" ]]; then
+            echo "::error::Cloudflare Workers account subdomain is unavailable."
             exit 4
           fi
-          url="https://$WORKER_NAME.$subdomain.workers.dev"
+          url="https://$WORKER_NAME.$ACCOUNT_SUBDOMAIN.workers.dev"
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Public API: $url"
 
@@ -135,7 +170,7 @@ jobs:
           PUBLIC_URL: ${{ steps.public_url.outputs.url }}
         run: |
           set -euo pipefail
-          for attempt in {1..12}; do
+          for attempt in {1..24}; do
             body="$(curl --silent --show-error --max-time 15 "$PUBLIC_URL/health" || true)"
             if jq -e '.ok == true and .service == "tableread-mobile-api"' >/dev/null 2>&1 <<<"$body"; then
               echo "Cloudflare mobile API is healthy at $PUBLIC_URL"
@@ -146,6 +181,68 @@ jobs:
           done
           echo "::error::Deployed Worker did not pass its health check."
           exit 5
+
+      - name: Verify native auth and sync contract
+        shell: bash
+        env:
+          PUBLIC_URL: ${{ steps.public_url.outputs.url }}
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          user_agent='TableRead/1 CFNetwork iPhone'
+
+          invalid_exchange_status="$(curl --silent --show-error --user-agent "$user_agent" \
+            --output "$work/invalid-exchange.json" --write-out '%{http_code}' \
+            --request POST --header 'Content-Type: application/json' \
+            --data '{"code":"AAAAAAAA","deviceName":"Production Smoke Test"}' \
+            "$PUBLIC_URL/api/mobile/exchange")"
+          [[ "$invalid_exchange_status" == "401" ]]
+          jq -e '.error == "Invalid or expired pairing code."' "$work/invalid-exchange.json" >/dev/null
+
+          invalid_sync_status="$(curl --silent --show-error --user-agent "$user_agent" \
+            --output "$work/invalid-sync.json" --write-out '%{http_code}' \
+            --header 'Authorization: Bearer tr_live_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' \
+            "$PUBLIC_URL/api/mobile/sync")"
+          [[ "$invalid_sync_status" == "401" ]]
+          jq -e '.error == "Invalid mobile session."' "$work/invalid-sync.json" >/dev/null
+
+          pair_response="$(curl --fail --silent --show-error --user-agent "$user_agent" \
+            --request POST --header 'Content-Type: application/json' \
+            --header "X-Admin-Secret: $PAIRING_ADMIN_SECRET" \
+            --data '{}' "$PUBLIC_URL/api/mobile/pair")"
+          code="$(jq -r '.code // empty' <<<"$pair_response")"
+          [[ ${#code} -eq 8 ]]
+          echo "::add-mask::$code"
+
+          exchange_response="$(curl --fail --silent --show-error --user-agent "$user_agent" \
+            --request POST --header 'Content-Type: application/json' \
+            --data "$(jq -nc --arg code "$code" '{code:$code,deviceName:"Production Smoke Test"}')" \
+            "$PUBLIC_URL/api/mobile/exchange")"
+          token="$(jq -r '.token // empty' <<<"$exchange_response")"
+          [[ "$token" == tr_live_* ]]
+          echo "::add-mask::$token"
+
+          snapshot="$(curl --fail --silent --show-error --user-agent "$user_agent" \
+            --header "Authorization: Bearer $token" \
+            "$PUBLIC_URL/api/mobile/sync")"
+          jq -e '.players | type == "array"' <<<"$snapshot" >/dev/null
+          jq -e '.observations | type == "array"' <<<"$snapshot" >/dev/null
+          jq -e '.truncated | type == "boolean"' <<<"$snapshot" >/dev/null
+
+          curl --fail --silent --show-error --user-agent "$user_agent" \
+            --request POST --header 'Content-Type: application/json' \
+            --header "Authorization: Bearer $token" --data '{}' \
+            "$PUBLIC_URL/api/mobile/revoke" >/dev/null
+
+          revoked_status="$(curl --silent --show-error --user-agent "$user_agent" \
+            --output "$work/revoked.json" --write-out '%{http_code}' \
+            --header "Authorization: Bearer $token" \
+            "$PUBLIC_URL/api/mobile/sync")"
+          [[ "$revoked_status" == "401" ]]
+          jq -e '.error == "Invalid mobile session."' "$work/revoked.json" >/dev/null
+
+          echo 'Native pairing, bearer sync, and revocation contract passed.'
 
       - name: Deployment summary
         env:
@@ -159,4 +256,5 @@ jobs:
             echo "- Health: $PUBLIC_URL/health"
             echo '- D1 migrations: applied'
             echo '- Pairing secret: installed as an encrypted Worker secret'
+            echo '- Native auth/sync smoke test: passed'
           } >> "$GITHUB_STEP_SUMMARY"
