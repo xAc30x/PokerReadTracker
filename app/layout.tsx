@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import "./ux-optimizations.css";
+import "./a-c-hybrid.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://table-read-poker-tracker.xac30x.chatgpt.site"),
