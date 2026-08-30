@@ -60,6 +60,12 @@ export const observations = sqliteTable(
       .references(() => players.id, { onDelete: "cascade" }),
     phase: text("phase").notNull(),
     action: text("action").notNull(),
+    handId: text("hand_id").notNull().default(""),
+    handNumber: integer("hand_number").notNull().default(0),
+    seatNo: integer("seat_no"),
+    position: text("position").notNull().default(""),
+    sequence: integer("sequence").notNull().default(0),
+    preflopContext: text("preflop_context").notNull().default(""),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [
@@ -71,6 +77,11 @@ export const observations = sqliteTable(
       table.ownerKey,
       table.createdAt,
     ),
+    index("observations_owner_hand_idx").on(
+      table.ownerKey,
+      table.handId,
+      table.sequence,
+    ),
   ],
 );
 
@@ -79,6 +90,7 @@ export const tableState = sqliteTable("table_state", {
   positionOffset: integer("position_offset").notNull().default(0),
   handNumber: integer("hand_number").notNull().default(1),
   tableSize: integer("table_size").notNull().default(6),
+  currentHandId: text("current_hand_id").notNull().default(""),
   lastAdvanceId: text("last_advance_id").notNull().default(""),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
