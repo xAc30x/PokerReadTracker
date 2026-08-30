@@ -1,0 +1,55 @@
+name: iPhone Production Network Verification
+
+on:
+  push:
+    branches:
+      - verify/ios-production-network
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify production mobile endpoints with iPhone Safari user agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://table-read-poker-tracker.xac30x.chatgpt.site'
+          UA='Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1'
+          work="$(mktemp -d)"
+
+          request() {
+            local name="$1"; shift
+            local code
+            code=$(curl --silent --show-error --max-time 30 --user-agent "$UA" --dump-header "$work/$name.headers" --output "$work/$name.body" --write-out '%{http_code}' "$@")
+            echo "=== $name ==="
+            echo "HTTP $code"
+            grep -iE '^(content-type|location|server|www-authenticate):' "$work/$name.headers" || true
+            echo '--- body ---'
+            head -c 700 "$work/$name.body" || true
+            echo
+            echo
+          }
+
+          request pair "$BASE/pair"
+          request exchange --request POST --header 'Content-Type: application/json' --data '{"code":"AAAAAAAA","deviceName":"iPhone Production Probe"}' "$BASE/api/mobile/exchange"
+          request sync --request POST --header 'Content-Type: application/json' --header 'Authorization: Bearer tr_live_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' --data '{"players":[],"observations":[],"deletedObservationIds":[]}' "$BASE/api/mobile/sync"
+
+          exchange_type=$(grep -i '^content-type:' "$work/exchange.headers" | tr -d '\r' | tail -1 || true)
+          sync_type=$(grep -i '^content-type:' "$work/sync.headers" | tr -d '\r' | tail -1 || true)
+
+          echo '=== classification ==='
+          if grep -q 'Invalid or expired pairing code' "$work/exchange.body"; then
+            echo 'PASS: unauthenticated exchange route is reachable through production gateway.'
+          else
+            echo "FAIL: exchange route did not return its expected JSON application error. Content-Type: $exchange_type"
+            exit 21
+          fi
+
+          if grep -q 'Invalid mobile session' "$work/sync.body"; then
+            echo 'PASS: bearer-authenticated sync route is reachable through production gateway.'
+          else
+            echo "FAIL: sync route did not return its expected bearer-session application error. Content-Type: $sync_type"
+            exit 22
+          fi
+
+          echo 'PASS: production gateway admits iPhone-style native exchange and bearer sync traffic.'
