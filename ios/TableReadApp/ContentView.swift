@@ -227,7 +227,7 @@ struct ContentView: View {
             Text("Add your first player").font(.headline)
             TextField("Player name", text: $newPlayerName)
                 .textFieldStyle(.roundedBorder)
-                .textInputAutapitalization(.words)
+                .textInputAutocapitalization(.words)
             Button("Add Player") {
                 store.addPlayer(name: newPlayerName)
                 newPlayerName = ""
