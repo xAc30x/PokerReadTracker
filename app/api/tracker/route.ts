@@ -43,6 +43,18 @@ const VALID_ACTIONS = new Set([
   "limp-call",
   "raise",
 ]);
+const PREFLOP_AGGRESSION = new Set([
+  "open-raise",
+  "raise",
+  "three-bet",
+  "four-bet-plus",
+  "all-in",
+  "squeeze",
+]);
+const POSITION_ORDERS: Record<6 | 8, readonly string[]> = {
+  6: ["BB", "UTG", "HJ", "CO", "BTN", "SB"],
+  8: ["BB", "UTG", "UTG+1", "MP", "HJ", "CO", "BTN", "SB"],
+};
 
 type CountRow = {
   player_id: string;
@@ -73,6 +85,13 @@ type RecentRow = {
   sequence: number;
   preflop_context: string;
   created_at: string;
+};
+
+type CurrentTableRow = {
+  positionOffset: number;
+  handNumber: number;
+  tableSize: number;
+  currentHandId: string;
 };
 
 function getOwner(request: Request): string | null {
@@ -168,6 +187,13 @@ function percentage(numerator: number, denominator: number, precision = 0) {
   return Math.round((numerator / denominator) * 100 * factor) / factor;
 }
 
+function positionForSeat(seatNo: number, positionOffset: number, tableSizeValue: number) {
+  const tableSize: 6 | 8 = tableSizeValue === 8 ? 8 : 6;
+  const normalizedOffset = ((positionOffset % tableSize) + tableSize) % tableSize;
+  const positionIndex = (seatNo - 1 - normalizedOffset + tableSize) % tableSize;
+  return POSITION_ORDERS[tableSize][positionIndex] ?? "";
+}
+
 async function ensureCurrentHand(ownerKey: string) {
   const current = await getDb()
     .select({ currentHandId: tableState.currentHandId })
@@ -192,6 +218,27 @@ async function ensureCurrentHand(ownerKey: string) {
     )
     .bind(ownerKey, handId)
     .run();
+}
+
+async function getCurrentTable(ownerKey: string): Promise<CurrentTableRow> {
+  await ensureCurrentHand(ownerKey);
+  const rows = await getDb()
+    .select({
+      positionOffset: tableState.positionOffset,
+      handNumber: tableState.handNumber,
+      tableSize: tableState.tableSize,
+      currentHandId: tableState.currentHandId,
+    })
+    .from(tableState)
+    .where(eq(tableState.ownerKey, ownerKey))
+    .limit(1);
+
+  return rows[0] ?? {
+    positionOffset: 0,
+    handNumber: 1,
+    tableSize: 6,
+    currentHandId: crypto.randomUUID(),
+  };
 }
 
 function buildRecentHands(rows: RecentRow[]): RecentHand[] {
@@ -419,6 +466,79 @@ async function assignSeat(ownerKey: string, seatNo: number, playerId: string | n
   await d1.batch(statements);
 }
 
+async function inferObservationContext(ownerKey: string, mutation: Extract<TrackerMutation, { type: "addObservation" }>) {
+  const d1 = getD1();
+  const currentTable = await getCurrentTable(ownerKey);
+  const handId = isSafeId(mutation.handId) ? mutation.handId : currentTable.currentHandId;
+  const handNumber = Number.isInteger(mutation.handNumber) && (mutation.handNumber ?? 0) > 0
+    ? Math.min(2_000_000_000, mutation.handNumber!)
+    : currentTable.handNumber;
+
+  let seatNo = Number.isInteger(mutation.seatNo) && (mutation.seatNo ?? 0) >= 1 && (mutation.seatNo ?? 0) <= 8
+    ? mutation.seatNo!
+    : null;
+  if (seatNo === null) {
+    const seatResult = await d1
+      .prepare("SELECT seat_no FROM seats WHERE owner_key = ? AND player_id = ? LIMIT 1")
+      .bind(ownerKey, mutation.playerId)
+      .first<{ seat_no: number }>();
+    seatNo = seatResult ? Number(seatResult.seat_no) : null;
+  }
+
+  const suppliedPosition = cleanText(mutation.position, 12) ?? "";
+  const position = suppliedPosition || (seatNo
+    ? positionForSeat(seatNo, currentTable.positionOffset, currentTable.tableSize)
+    : "");
+
+  let sequence = Number.isInteger(mutation.sequence) && (mutation.sequence ?? 0) > 0
+    ? Math.min(1000, mutation.sequence!)
+    : 0;
+  if (!sequence && handId) {
+    const sequenceResult = await d1
+      .prepare(
+        "SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence FROM observations WHERE owner_key = ? AND hand_id = ?",
+      )
+      .bind(ownerKey, handId)
+      .first<{ next_sequence: number }>();
+    sequence = Number(sequenceResult?.next_sequence ?? 1);
+  }
+
+  let preflopContext = mutation.phase === "preflop" && mutation.preflopContext && VALID_PREFLOP_CONTEXTS.has(mutation.preflopContext)
+    ? mutation.preflopContext
+    : "";
+
+  if (mutation.phase === "preflop" && !preflopContext) {
+    if (["three-bet", "squeeze", "cold-call"].includes(mutation.action)) {
+      preflopContext = "facing-raise";
+    } else if (["open-raise", "raise", "limp"].includes(mutation.action)) {
+      preflopContext = "unopened";
+    } else if (handId && ["fold", "call"].includes(mutation.action)) {
+      const previous = await d1
+        .prepare(
+          `SELECT action
+           FROM observations
+           WHERE owner_key = ? AND hand_id = ? AND phase = 'preflop'
+           ORDER BY sequence DESC, created_at DESC
+           LIMIT 1`,
+        )
+        .bind(ownerKey, handId)
+        .first<{ action: string }>();
+      if (previous?.action && ["open-raise", "raise"].includes(previous.action)) {
+        preflopContext = "facing-raise";
+      }
+    }
+  }
+
+  return {
+    handId,
+    handNumber,
+    seatNo,
+    position,
+    sequence,
+    preflopContext,
+  };
+}
+
 export async function GET(request: Request) {
   const owner = getOwner(request);
   if (!owner) return jsonError("Sign in is required.", 401);
@@ -549,6 +669,7 @@ export async function POST(request: Request) {
 
       case "clearSeats": {
         const handId = isSafeId(mutation.handId) ? mutation.handId : crypto.randomUUID();
+        const currentTable = await getCurrentTable(owner);
         const d1 = getD1();
         await d1.batch([
           d1.prepare("DELETE FROM seats WHERE owner_key = ?").bind(owner),
@@ -556,7 +677,7 @@ export async function POST(request: Request) {
             .prepare(
               `INSERT INTO table_state
                (owner_key, position_offset, hand_number, table_size, current_hand_id, last_advance_id, updated_at)
-               VALUES (?, 0, 1, 6, ?, '', CURRENT_TIMESTAMP)
+               VALUES (?, 0, 1, ?, ?, '', CURRENT_TIMESTAMP)
                ON CONFLICT(owner_key) DO UPDATE SET
                  position_offset = 0,
                  hand_number = 1,
@@ -564,7 +685,7 @@ export async function POST(request: Request) {
                  last_advance_id = '',
                  updated_at = CURRENT_TIMESTAMP`,
             )
-            .bind(owner, handId),
+            .bind(owner, currentTable.tableSize === 8 ? 8 : 6, handId),
         ]);
         break;
       }
@@ -577,21 +698,7 @@ export async function POST(request: Request) {
           return jsonError("Unknown observation type.");
         }
 
-        const handId = isSafeId(mutation.handId) ? mutation.handId : "";
-        const handNumber = Number.isInteger(mutation.handNumber) && (mutation.handNumber ?? 0) > 0
-          ? Math.min(2_000_000_000, mutation.handNumber!)
-          : 0;
-        const seatNo = Number.isInteger(mutation.seatNo) && (mutation.seatNo ?? 0) >= 1 && (mutation.seatNo ?? 0) <= 8
-          ? mutation.seatNo!
-          : null;
-        const position = cleanText(mutation.position, 12) ?? "";
-        const sequence = Number.isInteger(mutation.sequence) && (mutation.sequence ?? 0) > 0
-          ? Math.min(1000, mutation.sequence!)
-          : 0;
-        const preflopContext = mutation.phase === "preflop" && mutation.preflopContext && VALID_PREFLOP_CONTEXTS.has(mutation.preflopContext)
-          ? mutation.preflopContext
-          : "";
-
+        const context = await inferObservationContext(owner, mutation);
         await getD1()
           .prepare(
             `INSERT OR IGNORE INTO observations
@@ -606,12 +713,12 @@ export async function POST(request: Request) {
             owner,
             mutation.phase,
             mutation.action,
-            handId,
-            handNumber,
-            seatNo,
-            position,
-            sequence,
-            preflopContext,
+            context.handId,
+            context.handNumber,
+            context.seatNo,
+            context.position,
+            context.sequence,
+            context.preflopContext,
             mutation.playerId,
             owner,
           )
