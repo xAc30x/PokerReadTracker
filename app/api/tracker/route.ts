@@ -3,7 +3,11 @@ import { getD1, getDb } from "@/db";
 import { observations, players, seats, tableState } from "@/db/schema";
 import {
   PLAY_STYLES,
+  type PlayerHudStats,
   type PlayerPatch,
+  type PreflopContext,
+  type RecentHand,
+  type RecentObservation,
   type TrackerMutation,
 } from "@/app/tracker-types";
 
@@ -11,6 +15,7 @@ export const dynamic = "force-dynamic";
 
 const OWNER_HEADER = "oai-authenticated-user-email";
 const VALID_PHASES = new Set(["preflop", "postflop", "showdown"]);
+const VALID_PREFLOP_CONTEXTS = new Set<PreflopContext>(["unopened", "facing-raise"]);
 const VALID_ACTIONS = new Set([
   "fold",
   "limp",
@@ -44,6 +49,30 @@ type CountRow = {
   phase: string;
   action: string;
   count: number;
+};
+
+type HudStatRow = {
+  player_id: string;
+  sample_hands: number;
+  vpip_hands: number;
+  pfr_hands: number;
+  three_bet_hands: number;
+  three_bet_opportunities: number;
+};
+
+type RecentRow = {
+  id: string;
+  player_id: string;
+  player_name: string;
+  phase: string;
+  action: string;
+  hand_id: string;
+  hand_number: number;
+  seat_no: number | null;
+  position: string;
+  sequence: number;
+  preflop_context: string;
+  created_at: string;
 };
 
 function getOwner(request: Request): string | null {
@@ -133,9 +162,89 @@ function parseTags(value: string): string[] {
   }
 }
 
+function percentage(numerator: number, denominator: number, precision = 0) {
+  if (denominator <= 0) return null;
+  const factor = 10 ** precision;
+  return Math.round((numerator / denominator) * 100 * factor) / factor;
+}
+
+async function ensureCurrentHand(ownerKey: string) {
+  const current = await getDb()
+    .select({ currentHandId: tableState.currentHandId })
+    .from(tableState)
+    .where(eq(tableState.ownerKey, ownerKey))
+    .limit(1);
+
+  if (current[0]?.currentHandId) return;
+
+  const handId = crypto.randomUUID();
+  await getD1()
+    .prepare(
+      `INSERT INTO table_state
+       (owner_key, position_offset, hand_number, table_size, current_hand_id, last_advance_id, updated_at)
+       VALUES (?, 0, 1, 6, ?, '', CURRENT_TIMESTAMP)
+       ON CONFLICT(owner_key) DO UPDATE SET
+         current_hand_id = CASE
+           WHEN current_hand_id = '' THEN excluded.current_hand_id
+           ELSE current_hand_id
+         END,
+         updated_at = CURRENT_TIMESTAMP`,
+    )
+    .bind(ownerKey, handId)
+    .run();
+}
+
+function buildRecentHands(rows: RecentRow[]): RecentHand[] {
+  const groups = new Map<string, RecentHand>();
+
+  for (const row of rows) {
+    if (!row.hand_id || !VALID_PHASES.has(row.phase)) continue;
+    const observation: RecentObservation = {
+      id: row.id,
+      playerId: row.player_id,
+      playerName: row.player_name,
+      phase: row.phase as RecentObservation["phase"],
+      action: row.action,
+      handId: row.hand_id,
+      handNumber: Number(row.hand_number),
+      seatNo: row.seat_no === null ? null : Number(row.seat_no),
+      position: row.position,
+      sequence: Number(row.sequence),
+      preflopContext: VALID_PREFLOP_CONTEXTS.has(row.preflop_context as PreflopContext)
+        ? (row.preflop_context as PreflopContext)
+        : null,
+      createdAt: row.created_at,
+    };
+
+    const existing = groups.get(row.hand_id);
+    if (existing) {
+      existing.observations.push(observation);
+      if (row.created_at > existing.createdAt) existing.createdAt = row.created_at;
+      continue;
+    }
+
+    if (groups.size >= 12) continue;
+    groups.set(row.hand_id, {
+      id: row.hand_id,
+      handNumber: Number(row.hand_number),
+      createdAt: row.created_at,
+      observations: [observation],
+    });
+  }
+
+  return Array.from(groups.values()).map((hand) => ({
+    ...hand,
+    observations: hand.observations.sort(
+      (a, b) => a.sequence - b.sequence || a.createdAt.localeCompare(b.createdAt),
+    ),
+  }));
+}
+
 async function getState(ownerKey: string) {
+  await ensureCurrentHand(ownerKey);
   const db = getDb();
-  const [playerRows, seatRows, aggregate, tableRows] = await Promise.all([
+  const d1 = getD1();
+  const [playerRows, seatRows, aggregate, statsResult, recentResult, tableRows] = await Promise.all([
     db
       .select()
       .from(players)
@@ -146,7 +255,7 @@ async function getState(ownerKey: string) {
       .from(seats)
       .where(eq(seats.ownerKey, ownerKey))
       .orderBy(asc(seats.seatNo)),
-    getD1()
+    d1
       .prepare(
         `SELECT player_id, phase, action, COUNT(*) AS count
          FROM observations
@@ -155,11 +264,65 @@ async function getState(ownerKey: string) {
       )
       .bind(ownerKey)
       .all<CountRow>(),
+    d1
+      .prepare(
+        `SELECT
+           player_id,
+           COUNT(DISTINCT CASE
+             WHEN phase = 'preflop' AND hand_id <> '' THEN hand_id END
+           ) AS sample_hands,
+           COUNT(DISTINCT CASE
+             WHEN phase = 'preflop' AND hand_id <> '' AND action <> 'fold' THEN hand_id END
+           ) AS vpip_hands,
+           COUNT(DISTINCT CASE
+             WHEN phase = 'preflop' AND hand_id <> '' AND action IN
+               ('open-raise', 'raise', 'three-bet', 'four-bet-plus', 'all-in', 'squeeze')
+             THEN hand_id END
+           ) AS pfr_hands,
+           COUNT(DISTINCT CASE
+             WHEN phase = 'preflop' AND hand_id <> '' AND preflop_context = 'facing-raise'
+             THEN hand_id END
+           ) AS three_bet_opportunities,
+           COUNT(DISTINCT CASE
+             WHEN phase = 'preflop' AND hand_id <> '' AND preflop_context = 'facing-raise'
+               AND action IN ('three-bet', 'squeeze')
+             THEN hand_id END
+           ) AS three_bet_hands
+         FROM observations
+         WHERE owner_key = ?
+         GROUP BY player_id`,
+      )
+      .bind(ownerKey)
+      .all<HudStatRow>(),
+    d1
+      .prepare(
+        `SELECT
+           o.id,
+           o.player_id,
+           p.name AS player_name,
+           o.phase,
+           o.action,
+           o.hand_id,
+           o.hand_number,
+           o.seat_no,
+           o.position,
+           o.sequence,
+           o.preflop_context,
+           o.created_at
+         FROM observations o
+         JOIN players p ON p.id = o.player_id AND p.owner_key = o.owner_key
+         WHERE o.owner_key = ? AND o.hand_id <> ''
+         ORDER BY o.created_at DESC, o.sequence DESC
+         LIMIT 180`,
+      )
+      .bind(ownerKey)
+      .all<RecentRow>(),
     db
       .select({
         positionOffset: tableState.positionOffset,
         handNumber: tableState.handNumber,
         tableSize: tableState.tableSize,
+        currentHandId: tableState.currentHandId,
       })
       .from(tableState)
       .where(eq(tableState.ownerKey, ownerKey))
@@ -173,6 +336,26 @@ async function getState(ownerKey: string) {
     counts[row.player_id][row.phase][row.action] = Number(row.count);
   }
 
+  const hudStats: Record<string, PlayerHudStats> = {};
+  for (const row of statsResult.results ?? []) {
+    const sampleHands = Number(row.sample_hands);
+    const vpipHands = Number(row.vpip_hands);
+    const pfrHands = Number(row.pfr_hands);
+    const threeBetHands = Number(row.three_bet_hands);
+    const threeBetOpportunities = Number(row.three_bet_opportunities);
+    hudStats[row.player_id] = {
+      playerId: row.player_id,
+      sampleHands,
+      vpipHands,
+      pfrHands,
+      threeBetHands,
+      threeBetOpportunities,
+      vpipPct: percentage(vpipHands, sampleHands),
+      pfrPct: percentage(pfrHands, sampleHands),
+      threeBetPct: percentage(threeBetHands, threeBetOpportunities, 1),
+    };
+  }
+
   return {
     players: playerRows.map(({ ownerKey: _owner, archived: _archived, ...player }) => ({
       ...player,
@@ -181,7 +364,14 @@ async function getState(ownerKey: string) {
     })),
     seats: seatRows,
     counts,
-    table: tableRows[0] ?? { positionOffset: 0, handNumber: 1, tableSize: 6 },
+    hudStats,
+    recentHands: buildRecentHands(recentResult.results ?? []),
+    table: tableRows[0] ?? {
+      positionOffset: 0,
+      handNumber: 1,
+      tableSize: 6,
+      currentHandId: crypto.randomUUID(),
+    },
   };
 }
 
@@ -303,6 +493,7 @@ export async function POST(request: Request) {
         if (mutation.tableSize !== 6 && mutation.tableSize !== 8) {
           return jsonError("Table size must be 6 or 8.");
         }
+        const handId = isSafeId(mutation.handId) ? mutation.handId : crypto.randomUUID();
         const d1 = getD1();
         await d1.batch([
           d1
@@ -311,15 +502,17 @@ export async function POST(request: Request) {
           d1
             .prepare(
               `INSERT INTO table_state
-               (owner_key, position_offset, hand_number, table_size, last_advance_id, updated_at)
-               VALUES (?, 0, 1, ?, '', CURRENT_TIMESTAMP)
+               (owner_key, position_offset, hand_number, table_size, current_hand_id, last_advance_id, updated_at)
+               VALUES (?, 0, 1, ?, ?, '', CURRENT_TIMESTAMP)
                ON CONFLICT(owner_key) DO UPDATE SET
                  position_offset = 0,
+                 hand_number = 1,
                  table_size = excluded.table_size,
+                 current_hand_id = excluded.current_hand_id,
                  last_advance_id = '',
                  updated_at = CURRENT_TIMESTAMP`,
             )
-            .bind(owner, mutation.tableSize),
+            .bind(owner, mutation.tableSize, handId),
         ]);
         break;
       }
@@ -329,8 +522,8 @@ export async function POST(request: Request) {
         await getD1()
           .prepare(
             `INSERT INTO table_state
-             (owner_key, position_offset, hand_number, table_size, last_advance_id, updated_at)
-             VALUES (?, 1, 2, 6, ?, CURRENT_TIMESTAMP)
+             (owner_key, position_offset, hand_number, table_size, current_hand_id, last_advance_id, updated_at)
+             VALUES (?, 1, 2, 6, ?, ?, CURRENT_TIMESTAMP)
              ON CONFLICT(owner_key) DO UPDATE SET
                position_offset = CASE
                  WHEN last_advance_id <> excluded.last_advance_id
@@ -342,29 +535,36 @@ export async function POST(request: Request) {
                  THEN hand_number + 1
                  ELSE hand_number
                END,
+               current_hand_id = CASE
+                 WHEN last_advance_id <> excluded.last_advance_id
+                 THEN excluded.current_hand_id
+                 ELSE current_hand_id
+               END,
                last_advance_id = excluded.last_advance_id,
                updated_at = CURRENT_TIMESTAMP`,
           )
-          .bind(owner, mutation.id)
+          .bind(owner, mutation.id, mutation.id)
           .run();
         break;
 
       case "clearSeats": {
+        const handId = isSafeId(mutation.handId) ? mutation.handId : crypto.randomUUID();
         const d1 = getD1();
         await d1.batch([
           d1.prepare("DELETE FROM seats WHERE owner_key = ?").bind(owner),
           d1
             .prepare(
               `INSERT INTO table_state
-               (owner_key, position_offset, hand_number, last_advance_id, updated_at)
-               VALUES (?, 0, 1, '', CURRENT_TIMESTAMP)
+               (owner_key, position_offset, hand_number, table_size, current_hand_id, last_advance_id, updated_at)
+               VALUES (?, 0, 1, 6, ?, '', CURRENT_TIMESTAMP)
                ON CONFLICT(owner_key) DO UPDATE SET
                  position_offset = 0,
                  hand_number = 1,
+                 current_hand_id = excluded.current_hand_id,
                  last_advance_id = '',
                  updated_at = CURRENT_TIMESTAMP`,
             )
-            .bind(owner),
+            .bind(owner, handId),
         ]);
         break;
       }
@@ -376,11 +576,28 @@ export async function POST(request: Request) {
         if (!VALID_PHASES.has(mutation.phase) || !VALID_ACTIONS.has(mutation.action)) {
           return jsonError("Unknown observation type.");
         }
+
+        const handId = isSafeId(mutation.handId) ? mutation.handId : "";
+        const handNumber = Number.isInteger(mutation.handNumber) && (mutation.handNumber ?? 0) > 0
+          ? Math.min(2_000_000_000, mutation.handNumber!)
+          : 0;
+        const seatNo = Number.isInteger(mutation.seatNo) && (mutation.seatNo ?? 0) >= 1 && (mutation.seatNo ?? 0) <= 8
+          ? mutation.seatNo!
+          : null;
+        const position = cleanText(mutation.position, 12) ?? "";
+        const sequence = Number.isInteger(mutation.sequence) && (mutation.sequence ?? 0) > 0
+          ? Math.min(1000, mutation.sequence!)
+          : 0;
+        const preflopContext = mutation.phase === "preflop" && mutation.preflopContext && VALID_PREFLOP_CONTEXTS.has(mutation.preflopContext)
+          ? mutation.preflopContext
+          : "";
+
         await getD1()
           .prepare(
             `INSERT OR IGNORE INTO observations
-             (id, owner_key, player_id, phase, action, created_at)
-             SELECT ?, ?, id, ?, ?, CURRENT_TIMESTAMP
+             (id, owner_key, player_id, phase, action, hand_id, hand_number,
+              seat_no, position, sequence, preflop_context, created_at)
+             SELECT ?, ?, id, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP
              FROM players
              WHERE id = ? AND owner_key = ? AND archived = 0`,
           )
@@ -389,6 +606,12 @@ export async function POST(request: Request) {
             owner,
             mutation.phase,
             mutation.action,
+            handId,
+            handNumber,
+            seatNo,
+            position,
+            sequence,
+            preflopContext,
             mutation.playerId,
             owner,
           )
