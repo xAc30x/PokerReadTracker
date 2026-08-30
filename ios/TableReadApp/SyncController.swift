@@ -11,19 +11,25 @@ final class SyncController: ObservableObject {
 
     private let session: URLSession
     private let baseURL: URL
+    private let isAPIConfigured: Bool
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
     init(session: URLSession = .shared, baseURL: URL? = nil) {
         self.session = session
+
         if let baseURL {
             self.baseURL = baseURL
+            self.isAPIConfigured = Self.isUsableAPIURL(baseURL)
         } else if let configured = Bundle.main.object(forInfoDictionaryKey: "TableReadAPIBaseURL") as? String,
                   let configuredURL = URL(string: configured) {
             self.baseURL = configuredURL
+            self.isAPIConfigured = Self.isUsableAPIURL(configuredURL)
         } else {
-            self.baseURL = URL(string: "https://table-read-poker-tracker.xac30x.chatgpt.site")!
+            self.baseURL = URL(string: "https://table-read-mobile-api.invalid")!
+            self.isAPIConfigured = false
         }
+
         self.isPaired = KeychainStore.loadToken() != nil
         encoder.dateEncodingStrategy = .iso8601
     }
@@ -88,7 +94,7 @@ final class SyncController: ObservableObject {
             status = "Pair again"
             errorMessage = SyncError.unauthorized.localizedDescription
         } catch {
-            isPaired = true
+            isPaired = KeychainStore.loadToken() != nil
             status = "Offline changes saved"
             errorMessage = error.localizedDescription
         }
@@ -105,7 +111,15 @@ final class SyncController: ObservableObject {
         _ = try? await request(path: "/api/mobile/revoke", method: "POST", body: Data("{}".utf8), token: token)
     }
 
+    private static func isUsableAPIURL(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased(), !host.hasSuffix(".invalid") else { return false }
+        if url.scheme?.lowercased() == "https" { return true }
+        if url.scheme?.lowercased() == "http" && ["localhost", "127.0.0.1"].contains(host) { return true }
+        return false
+    }
+
     private func request(path: String, method: String, body: Data?, token: String?) async throws -> Data {
+        guard isAPIConfigured else { throw SyncError.apiNotConfigured }
         guard let url = URL(string: path, relativeTo: baseURL)?.absoluteURL else { throw SyncError.invalidURL }
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -267,6 +281,7 @@ private struct APIError: Decodable {
 }
 
 enum SyncError: LocalizedError {
+    case apiNotConfigured
     case invalidURL
     case invalidResponse
     case unauthorized
@@ -276,6 +291,7 @@ enum SyncError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .apiNotConfigured: return "The TableRead Cloudflare API has not been configured for this build."
         case .invalidURL: return "The TableRead API URL is invalid."
         case .invalidResponse: return "The TableRead server returned an invalid response."
         case .unauthorized: return "This iPhone session is no longer authorized. Pair the app again."

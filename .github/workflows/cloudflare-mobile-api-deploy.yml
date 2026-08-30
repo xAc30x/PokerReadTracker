@@ -1,0 +1,162 @@
+name: Deploy Cloudflare Mobile API
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-mobile-api-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PAIRING_ADMIN_SECRET: ${{ secrets.TABLEREAD_PAIRING_ADMIN_SECRET }}
+      WORKER_NAME: table-read-mobile-api
+      D1_NAME: table-read-mobile-api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm run install:ci
+
+      - name: Verify deployment credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variable in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID PAIRING_ADMIN_SECRET; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::$variable is not configured as a GitHub Actions secret."
+              exit 2
+            fi
+          done
+
+      - name: Discover or create D1 database
+        id: d1
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database"
+          auth=(--header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --header 'Content-Type: application/json')
+
+          list_json="$(curl --fail --silent --show-error "${auth[@]}" "$api?name=$D1_NAME&per_page=100")"
+          database_id="$(jq -r --arg name "$D1_NAME" '.result[]? | select(.name == $name) | .uuid' <<<"$list_json" | head -n1)"
+
+          if [[ -z "$database_id" ]]; then
+            echo "Creating D1 database $D1_NAME"
+            create_json="$(curl --fail --silent --show-error --request POST "${auth[@]}" --data "$(jq -nc --arg name "$D1_NAME" '{name:$name}')" "$api")"
+            database_id="$(jq -r '.result.uuid // empty' <<<"$create_json")"
+          else
+            echo "Using existing D1 database $D1_NAME"
+          fi
+
+          if [[ -z "$database_id" ]]; then
+            echo "::error::Cloudflare did not return a D1 database UUID."
+            exit 3
+          fi
+
+          echo "database_id=$database_id" >> "$GITHUB_OUTPUT"
+          echo "D1 database resolved."
+
+      - name: Generate production Wrangler config
+        shell: bash
+        env:
+          DATABASE_ID: ${{ steps.d1.outputs.database_id }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg databaseId "$DATABASE_ID" \
+            --arg workerName "$WORKER_NAME" \
+            --arg databaseName "$D1_NAME" \
+            '{
+              "$schema":"../../node_modules/wrangler/config-schema.json",
+              name:$workerName,
+              main:"src/index.ts",
+              compatibility_date:"2026-08-30",
+              workers_dev:true,
+              d1_databases:[{
+                binding:"DB",
+                database_name:$databaseName,
+                database_id:$databaseId,
+                migrations_dir:"migrations"
+              }],
+              vars:{
+                DEFAULT_OWNER_KEY:"primary-owner",
+                ALLOWED_ORIGIN:"https://table-read-poker-tracker.xac30x.chatgpt.site"
+              }
+            }' > cloudflare/mobile-api/wrangler.deploy.json
+
+      - name: Compile Worker
+        run: npm run mobile-api:check
+
+      - name: Apply D1 migrations
+        run: npx wrangler d1 migrations apply "$D1_NAME" --remote --config cloudflare/mobile-api/wrangler.deploy.json
+
+      - name: Install pairing administrator secret
+        shell: bash
+        run: printf '%s' "$PAIRING_ADMIN_SECRET" | npx wrangler secret put PAIRING_ADMIN_SECRET --config cloudflare/mobile-api/wrangler.deploy.json
+
+      - name: Deploy Worker
+        run: npx wrangler deploy --config cloudflare/mobile-api/wrangler.deploy.json
+
+      - name: Resolve public workers.dev URL
+        id: public_url
+        shell: bash
+        run: |
+          set -euo pipefail
+          subdomain_json="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain")"
+          subdomain="$(jq -r '.result.subdomain // empty' <<<"$subdomain_json")"
+          if [[ -z "$subdomain" ]]; then
+            echo "::error::Cloudflare Workers subdomain is not enabled for this account."
+            exit 4
+          fi
+          url="https://$WORKER_NAME.$subdomain.workers.dev"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Public API: $url"
+
+      - name: Verify production health endpoint
+        shell: bash
+        env:
+          PUBLIC_URL: ${{ steps.public_url.outputs.url }}
+        run: |
+          set -euo pipefail
+          for attempt in {1..12}; do
+            body="$(curl --silent --show-error --max-time 15 "$PUBLIC_URL/health" || true)"
+            if jq -e '.ok == true and .service == "tableread-mobile-api"' >/dev/null 2>&1 <<<"$body"; then
+              echo "Cloudflare mobile API is healthy at $PUBLIC_URL"
+              exit 0
+            fi
+            echo "Health check attempt $attempt failed; retrying..."
+            sleep 5
+          done
+          echo "::error::Deployed Worker did not pass its health check."
+          exit 5
+
+      - name: Deployment summary
+        env:
+          PUBLIC_URL: ${{ steps.public_url.outputs.url }}
+        run: |
+          {
+            echo '## TableRead Cloudflare Mobile API'
+            echo
+            echo "- Public API: $PUBLIC_URL"
+            echo "- Pairing page: $PUBLIC_URL/pair"
+            echo "- Health: $PUBLIC_URL/health"
+            echo '- D1 migrations: applied'
+            echo '- Pairing secret: installed as an encrypted Worker secret'
+          } >> "$GITHUB_STEP_SUMMARY"
