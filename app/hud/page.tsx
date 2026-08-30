@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { PokerTracker } from "../components/poker-tracker";
+import { CompanionHud } from "./companion-hud";
 import "./hud.css";
 
 export const metadata: Metadata = {
@@ -16,13 +16,5 @@ export const viewport: Viewport = {
 };
 
 export default function HudPage() {
-  return (
-    <div className="ios-companion-hud">
-      <div className="ios-companion-hud__banner" role="note">
-        <strong>Companion HUD</strong>
-        <span>Manual tracking only · optimized for fast app switching on iPhone</span>
-      </div>
-      <PokerTracker />
-    </div>
-  );
+  return <CompanionHud />;
 }
